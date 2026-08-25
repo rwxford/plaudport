@@ -1,0 +1,9 @@
+node_modules/
+dist/
+data/
+*.log
+spike-report.json
+.env
+.env.*
+!.env.example
+.DS_Store
