@@ -1,9 +1,46 @@
-node_modules/
-dist/
-data/
-*.log
-spike-report.json
+# --- Secrets: never commit anything but the template -------------------------
 .env
 .env.*
 !.env.example
+*.pem
+*.key
+*.p12
+*.keychain
+secrets.json
+credentials.json
+
+# --- Your Plaud data: audio, transcripts, summaries, manifests, ledger -------
+data/
+backup/
+*.sqlite
+*.sqlite-journal
+*.db
+spike-report.json
+*-report.json
+reconciliation-*.csv
+manifest.json
+
+# Media that could only be your own recordings
+*.mp3
+*.m4a
+*.wav
+*.aac
+*.ogg
+*.flac
+*.mp4
+
+# --- Build / tooling ---------------------------------------------------------
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+*.log
+npm-debug.log*
+.tmp/
+
+# --- Editors / OS ------------------------------------------------------------
 .DS_Store
+.idea/
+.vscode/
+*.swp

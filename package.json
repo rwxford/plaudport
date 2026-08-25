@@ -2,11 +2,15 @@
   "name": "plaudport",
   "version": "0.0.0",
   "private": true,
+  "description": "Local-first tool to back up Plaud data and copy Personal-workspace recordings into a Team workspace.",
+  "license": "MIT",
   "type": "module",
   "engines": { "node": ">=20" },
   "scripts": {
     "spike": "tsx src/spike.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check:secrets": "bash scripts/check-no-secrets.sh",
+    "hooks:install": "bash scripts/install-hooks.sh"
   },
   "devDependencies": {
     "tsx": "^4.19.0",

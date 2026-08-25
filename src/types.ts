@@ -11,6 +11,8 @@ export interface SpikeReport {
   startedAt: string;
   finishedAt: string;
   apiBase: string;
+  /** false means the samples below contain raw Plaud response content — do not share. */
+  samplesRedacted: boolean;
   probes: Probe[];
   gate: {
     readOk: boolean;

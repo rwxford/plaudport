@@ -8,7 +8,7 @@ export class PlaudClient {
   private base = config.apiBase;
 
   private assertAllowedHost(url: string) {
-    const host = new URL(url).host;
+    const host = new URL(url).host.toLowerCase();
     const ok = config.allowedHosts.some((h) => host === h || host.endsWith("." + h));
     if (!ok) throw new Error(`SSRF guard: host not allowlisted: ${host}`);
   }
@@ -31,7 +31,10 @@ export class PlaudClient {
   }
 
   async get<T = unknown>(endpoint: string, params?: Record<string, string>): Promise<{ status: number; data: T }> {
-    const res = await fetch(this.path(endpoint, params), { headers: this.headers() });
+    const res = await fetch(this.path(endpoint, params), {
+      headers: this.headers(),
+      signal: AbortSignal.timeout(config.requestTimeoutMs),
+    });
     const status = res.status;
     let data: unknown = null;
     try {
@@ -48,6 +51,7 @@ export class PlaudClient {
       method: "POST",
       headers: this.headers({ "Content-Type": "application/json" }),
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(config.requestTimeoutMs),
     });
     const data = await res.json().catch(() => null);
     if (!res.ok) throw Object.assign(new Error(`POST ${endpoint} -> ${res.status}`), { status: res.status, data });

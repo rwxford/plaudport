@@ -1,7 +1,9 @@
 import { config } from "./config.js";
 import { PlaudClient } from "./plaudClient.js";
+import { capSize, redactValue } from "./redact.js";
 import type { Probe, SpikeReport } from "./types.js";
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 /**
  * M0 read-only spike. Validates auth + read endpoints against your own account.
@@ -9,11 +11,18 @@ import { writeFileSync } from "node:fs";
  * and are intentionally left as TODOs until endpoints are mapped (docs/ENDPOINTS.md).
  *
  * Per decision O1: if import or derived-write cannot be validated, STOP and reassess.
+ *
+ * The report is written under PLAUD_DATA_DIR (gitignored) and its samples are
+ * redacted by default — see src/redact.ts.
  */
 async function main() {
   const client = new PlaudClient();
   const probes: Probe[] = [];
   const startedAt = new Date().toISOString();
+
+  function sample(data: unknown) {
+    return capSize(config.redactSamples ? redactValue(data) : data);
+  }
 
   async function readProbe(name: string, endpoint: string | null, params?: Record<string, string>) {
     if (!endpoint) {
@@ -22,7 +31,7 @@ async function main() {
     }
     try {
       const { status, data } = await client.get(endpoint, params);
-      probes.push({ name, ok: true, status, sample: truncate(data) });
+      probes.push({ name, ok: true, status, sample: sample(data) });
     } catch (e: any) {
       probes.push({ name, ok: false, status: e?.status, note: String(e?.message ?? e) });
     }
@@ -37,8 +46,8 @@ async function main() {
   const readOk = probes.some((p) => p.ok);
 
   // --- GUARDED write tests (do NOT run by default) ---
-  // Typed as the full union (not narrowed to the initializer) so the gate below can
-  // compare against true/false once the write tests actually set these.
+  // Typed as the full union (not narrowed to the initializer) so the gate below
+  // can compare against true/false once the write tests actually set these.
   let importValidated = "not-tested" as SpikeReport["gate"]["importValidated"];
   let derivedWriteValidated = "not-tested" as SpikeReport["gate"]["derivedWriteValidated"];
   if (config.allowWriteTest) {
@@ -59,24 +68,22 @@ async function main() {
     startedAt,
     finishedAt,
     apiBase: config.apiBase,
+    samplesRedacted: config.redactSamples,
     probes,
     gate: { readOk, importValidated, derivedWriteValidated, recommendation },
   };
 
-  writeFileSync("spike-report.json", JSON.stringify(report, null, 2));
+  mkdirSync(config.dataDir, { recursive: true });
+  const reportPath = join(config.dataDir, "spike-report.json");
+  writeFileSync(reportPath, JSON.stringify(report, null, 2));
+
   console.log("\n=== M0 spike report ===");
   for (const p of probes) {
     const tag = p.skipped ? "SKIP" : p.ok ? "OK  " : "FAIL";
     console.log(`[${tag}] ${p.name}${p.status ? ` (${p.status})` : ""}${p.note ? ` — ${p.note}` : ""}`);
   }
   console.log("\n" + recommendation);
-  console.log("Wrote spike-report.json");
-}
-
-function truncate(v: unknown): unknown {
-  const s = JSON.stringify(v);
-  if (s && s.length > 1200) return JSON.parse(s.slice(0, 1200) + '"');
-  return v;
+  console.log(`Wrote ${reportPath}${config.redactSamples ? " (samples redacted)" : " (RAW samples — do not share)"}`);
 }
 
 main().catch((e) => {

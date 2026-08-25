@@ -3,6 +3,10 @@
 The Plaud web API is unofficial and undocumented. Before the spike can do anything,
 capture the base URL, your token, and a few request shapes from your own session.
 
+> **Everything you capture here is account-specific.** The token is a full-access
+> credential, and saved HAR files and DevTools screenshots contain it. Keep all of
+> it out of git: token → `.env`, findings → paths and shapes only. See `SECURITY.md`.
+
 ## 1. Get a bearer token + base URL
 1. Sign in at https://web.plaud.ai (if you use Google SSO, first set a password via
    "Forgot Password").
@@ -38,5 +42,6 @@ capture the base URL, your token, and a few request shapes from your own session
 - Read probes succeed for both workspaces.
 - Import test: one throwaway audio imports into Team (private) — or is proven impossible.
 - Derived-write test: transcript/summary can be written/attached — or is proven impossible.
-- Record everything in `spike-report.json`. If import or derived-write is impossible,
-  **STOP** and reassess (decision O1).
+- Record everything in `data/spike-report.json` (gitignored; samples are redacted
+  unless you set `PLAUD_REDACT_SAMPLES=false`). If import or derived-write is
+  impossible, **STOP** and reassess (decision O1).

@@ -97,7 +97,7 @@ Idempotency key = `sha256(audio) + source_id`.
 
 ## 8. Security — OWASP Top Ten (2021) mapping
 - **A01 Broken Access Control:** bind `127.0.0.1` only; single-user; source workspace read-only in code; copy-only enforced.
-- **A02 Cryptographic Failures:** token in Keychain / AES-256-GCM; TLS to Plaud; optional at-rest encryption for backups; secrets never logged.
+- **A02 Cryptographic Failures:** token in Keychain / AES-256-GCM; TLS to Plaud; optional at-rest encryption for backups; secrets never logged. Repo is public: `.env` and `data/` gitignored, run reports redacted by default, and a tracked-secret check runs pre-commit and in CI.
 - **A03 Injection:** parameterized SQLite; zod validation on all inputs/filters; safe filename handling (no path traversal from Plaud titles).
 - **A04 Insecure Design:** backup-before-migrate hard gate; dry-run default; copy-only invariant; documented threat model.
 - **A05 Security Misconfiguration:** secure defaults (localhost bind, minimal CORS, no debug endpoints in prod build); secrets gitignored.
