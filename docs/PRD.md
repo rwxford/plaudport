@@ -6,12 +6,18 @@
 A local, single-user web application that runs on the owner's MacBook and talks
 directly to Plaud's (unofficial) web API to (1) take a complete, verified
 **backup/export** of all Plaud content, and (2) **migrate (copy)** recordings
-from the **Personal** workspace into the **Team** workspace so company meeting
-content is consolidated and reachable by the official Plaud MCP from Claude.
+from the **Personal** workspace into the **Team** workspace, landing private to
+the owner, so company meeting content lives in the company workspace while
+staying reachable by the official Plaud MCP from Claude.
 
 Rationale: Plaud offers no public general-purpose API, and the official MCP is
 read-only (list/search recordings; read transcripts/summaries/action items). The
 *write/import* half of a migration therefore has to be custom-built.
+
+Note the driver is **consolidation, not MCP reach**: the MCP already sees
+Personal-workspace files today (see §3). The point is to get company meeting
+content into the company's workspace — where it can be selectively shared with
+colleagues — without losing Claude's access to it along the way.
 
 ## 2. Goals / Non-goals
 **Goals**
@@ -22,7 +28,7 @@ read-only (list/search recordings; read transcripts/summaries/action items). The
 - G5. Secure by default (OWASP Top Ten applied); audio never leaves the machine except to Plaud.
 
 **Non-goals**
-- N1. No auto-promotion into shared "Team files" (owner decides what to share).
+- N1. No auto-promotion into shared "Team files" — the owner decides what to share, one file at a time. Doubly so while "Team files" is invisible to the MCP (§3): promotion is a deliberate trade of Claude access for colleague access.
 - N2. No delete/move of Personal originals (copy-only, ever).
 - N3. Not a general Plaud client, not multi-user, not a hosted service.
 - N4. Not dependent on the official MCP for any step (self-contained).
@@ -33,6 +39,9 @@ read-only (list/search recordings; read transcripts/summaries/action items). The
 - Transcripts and summaries do **not** transfer natively and must be regenerated in Team.
 - Plaud's own recommended bulk path: bulk-export audio via MCP, bulk-import into Team on Plaud Web.
 - In-Team personal content is **private by default**; sharing to the whole team is via the "Team files" folder.
+- **MCP visibility (observed, 2026-08):** the Plaud MCP can reach *all* files in a Personal workspace *and* private files in a Team workspace — but **not** files placed in the shared "Team files" folder. An issue is open with Plaud.
+  - Implication 1: migrating Personal → private-in-Team preserves Claude's access. This is the target state.
+  - Implication 2: promoting a file to "Team files" currently *removes* it from Claude's reach, so that step stays manual and deliberate (N1), never automatic.
 - Auth: Google SSO users must first set a password on web.plaud.ai; session tokens are long-lived (~300 days) and refresh silently.
 - The web API is **reverse-engineered/unofficial** and may change without notice.
 
@@ -134,6 +143,8 @@ If either (1) import or (2) derived-data write has no viable path, **stop and re
 - **O1 (M0):** does the web API expose usable import + derived-write, or is browser automation required? → resolve in M0, pause per decision.
 - **O2:** backup layout default `data/backup/<workspace>/<YYYY>/<MM>/<id>-<slug>/`.
 - **O3:** regeneration **opt-in** (decided).
+- **O4 (decided):** migrate **everything** in Personal by default; filters (§FR8) stay available but the default run is "all".
+- **O5 (v2, pending Plaud):** if Plaud does not make "Team files" MCP-visible, a v2 could manage that folder directly — e.g. keeping an MCP-reachable private copy alongside anything promoted to Team files. Out of scope until the open issue with Plaud resolves.
 
 ## 12. Acceptance criteria
 1. Verified full backup exists locally before any migration; re-running skips when current.

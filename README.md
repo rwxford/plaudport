@@ -17,6 +17,10 @@ Pre-M0. Not yet functional. This repo currently contains the PRD and a
 - The official Plaud MCP is **read-only** — it can't import or write.
 - Personal and Team workspaces are walled off; only audio imports natively, and
   transcripts/summaries don't carry over. This tool fills those gaps.
+- Copies land **private inside Team**, which keeps them readable by the Plaud MCP.
+  (As of 2026-08 the MCP sees Personal files and private Team files, but *not*
+  files moved into the shared "Team files" folder — so promoting a file there is
+  a manual, deliberate choice. See `docs/PRD.md` §3.)
 
 ## Safety model
 - **Copy-only.** Never deletes or moves Personal originals.
