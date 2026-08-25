@@ -17,6 +17,30 @@ capture the base URL, your token, and a few request shapes from your own session
    - **Authorization** header value (`Bearer ...`) → `PLAUD_TOKEN`
 5. Paste both into `.env`.
 
+## 1b. Easier: let the HAR scanner map it for you
+
+Instead of transcribing paths by hand:
+
+1. In DevTools → **Network**, tick **Preserve log**, then use the Plaud web app
+   normally: open the recordings list, open a recording, open its transcript and
+   summary, switch to the Team workspace, and (if you can) import one audio file.
+   The scanner can only find endpoints you actually exercised.
+2. Right-click anywhere in the request list → **Save all as HAR with content**.
+3. Run it through the scanner (no token needed for this step):
+
+```bash
+npm run scan:har -- ~/Downloads/web.plaud.ai.har
+```
+
+It prints every API call it found as a path template, plus a suggested block to
+paste into `src/config.ts`. Verify each guess against the list — they are keyword
+matches, not certainties.
+
+The scanner never copies your token, header values, or response content into its
+output; it keeps methods, paths, parameter names, status codes and redacted
+shapes. **Delete the `.har` afterwards** — that file does contain your token.
+`*.har` is gitignored so it can't be committed by accident.
+
 ## 2. Map these endpoints (fill in as you discover them)
 > The spike reads these from `src/config.ts`. Update paths to match what you see.
 

@@ -67,7 +67,7 @@ async function main() {
   const report: SpikeReport = {
     startedAt,
     finishedAt,
-    apiBase: config.apiBase,
+    apiBase: client.apiBase,
     samplesRedacted: config.redactSamples,
     probes,
     gate: { readOk, importValidated, derivedWriteValidated, recommendation },

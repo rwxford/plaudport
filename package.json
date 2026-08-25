@@ -8,6 +8,7 @@
   "engines": { "node": ">=20" },
   "scripts": {
     "spike": "tsx src/spike.ts",
+    "scan:har": "tsx src/harScan.ts",
     "typecheck": "tsc --noEmit",
     "check:secrets": "bash scripts/check-no-secrets.sh",
     "hooks:install": "bash scripts/install-hooks.sh"

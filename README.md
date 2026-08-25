@@ -66,6 +66,7 @@ freshness); they're listed and commented out at the bottom of `.env.example`.
 ## Scripts
 | Command | What it does |
 |---|---|
+| `npm run scan:har -- <file.har>` | Derive the endpoint map from a DevTools HAR export (no token needed) |
 | `npm run spike` | M0 read-only probes → `data/spike-report.json` |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run check:secrets` | Fails if secrets or Plaud data are tracked by git |

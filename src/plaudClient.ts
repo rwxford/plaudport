@@ -1,31 +1,40 @@
-import { config } from "./config.js";
+import { config, isAllowedHost, requireApiConfig, type ApiConfig } from "./config.js";
 
 /**
  * Thin, isolated client for the UNOFFICIAL Plaud web API.
  * Everything endpoint-specific is confined to this file (NFR4).
  */
 export class PlaudClient {
-  private base = config.apiBase;
+  private api: ApiConfig;
+
+  constructor() {
+    // Credentials are demanded here, not at import time, so tools that never
+    // call Plaud (e.g. the HAR scanner) run without a token.
+    this.api = requireApiConfig();
+  }
+
+  get apiBase(): string {
+    return this.api.apiBase;
+  }
 
   private assertAllowedHost(url: string) {
-    const host = new URL(url).host.toLowerCase();
-    const ok = config.allowedHosts.some((h) => host === h || host.endsWith("." + h));
-    if (!ok) throw new Error(`SSRF guard: host not allowlisted: ${host}`);
+    const host = new URL(url).host;
+    if (!isAllowedHost(host)) throw new Error(`SSRF guard: host not allowlisted: ${host.toLowerCase()}`);
   }
 
   private path(p: string, params: Record<string, string> = {}) {
     let out = p;
     for (const [k, v] of Object.entries(params)) out = out.replace(`{${k}}`, encodeURIComponent(v));
-    const url = out.startsWith("http") ? out : `${this.base}${out.startsWith("/") ? "" : "/"}${out}`;
+    const url = out.startsWith("http") ? out : `${this.api.apiBase}${out.startsWith("/") ? "" : "/"}${out}`;
     this.assertAllowedHost(url);
     return url;
   }
 
   private headers(extra: Record<string, string> = {}) {
     return {
-      Authorization: `Bearer ${config.token}`,
+      Authorization: `Bearer ${this.api.token}`,
       Accept: "application/json",
-      ...config.extraHeaders,
+      ...this.api.extraHeaders,
       ...extra,
     };
   }

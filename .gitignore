@@ -9,6 +9,9 @@
 secrets.json
 credentials.json
 
+# DevTools exports contain your bearer token and full response bodies
+*.har
+
 # --- Your Plaud data: audio, transcripts, summaries, manifests, ledger -------
 data/
 backup/
