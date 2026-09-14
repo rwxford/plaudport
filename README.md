@@ -17,10 +17,12 @@ Runs entirely on your own machine. Nothing is hosted, and no data goes anywhere
 except between your Mac and Plaud.
 
 ## Status
-Pre-flight on both. The share-link **probe** is built and tested (`npm run
-probe:share`) and needs one run against a real link to settle whether share pages
-expose audio — everything else waits on that answer. The migration side has a
-**read-only spike** for Plaud's unofficial web API.
+**Share import:** the audio path is built and tested — probe a link, find its
+audio request, download it verified. Confirmed: share pages play audio with no
+download link, so the audio is fetched over HTTP and can be captured. Still
+unproven: uploading it back into Plaud, so for now the mp3 is imported by hand.
+
+**Migration:** a **read-only spike** for Plaud's unofficial web API.
 
 ## Why this exists
 - Plaud has no public general-purpose API.
@@ -49,21 +51,27 @@ hook) fails the build if any of them get staged. See `SECURITY.md`.
 
 ## Requirements
 - macOS, Node.js ≥ 20
-- A Plaud account with Personal + Team workspaces
-- A bearer token captured from web.plaud.ai (see `docs/ENDPOINTS.md`)
+- For share-link import: nothing else — no login, no config
+- For the migration side: a Plaud account with Personal + Team workspaces, and a
+  bearer token captured from web.plaud.ai (see `docs/ENDPOINTS.md`)
 
-## Quick start
+## Quick start — get the audio out of a share link
 
-Probing a share link needs **no Plaud login and no configuration** — a share link
-works logged out, which is the whole point:
+A share page plays the recording but offers no download. Three commands put the
+mp3 on your disk. **No Plaud login and no configuration needed** — a share link
+works logged out, which is the whole point.
 
 ```bash
 npm install
-npm run probe:share -- "https://web.plaud.ai/s/pub_xxxxxxxx::xxxxxxxx"
+npm run probe:share -- "https://web.plaud.ai/s/pub_xxxxxxxx::xxxxxxxx"  # what does this link expose?
+npm run scan:har   -- ~/Downloads/web.plaud.ai.har                       # find the audio request
+npm run fetch:audio -- --from-scan                                       # download it, verified
 ```
 
-It reports what that link exposes — audio, transcript, API endpoints — as
-structure only, never the meeting's content.
+The middle step needs a 2-minute browser recording — **`docs/GET-THE-AUDIO.md`
+walks through it click by click**. The result lands in `data/shares/` with its
+size and SHA-256 recorded, ready to import into Plaud by hand today, and ready
+for the automated importer once that path is proven.
 
 For the migration spike (needs your own token):
 
@@ -94,6 +102,7 @@ freshness); they're listed and commented out at the bottom of `.env.example`.
 | Command | What it does |
 |---|---|
 | `npm run probe:share -- "<link>"` | Report what a public share link exposes (no token needed) |
+| `npm run fetch:audio -- --from-scan` | Download the audio found by `scan:har`, with integrity check |
 | `npm run scan:har -- <file.har>` | Derive the endpoint map from a DevTools HAR export (no token needed) |
 | `npm test` | Unit tests |
 | `npm run spike` | M0 read-only probes → `data/spike-report.json` |
@@ -102,8 +111,13 @@ freshness); they're listed and commented out at the bottom of `.env.example`.
 | `npm run hooks:install` | Installs the secret check as a pre-commit hook |
 
 ## Roadmap
-See `docs/PRD.md` §9. Current gate: **M0** (validate import + derived-data write).
-Per decision O1, if those writes aren't possible via the API, we pause and reassess.
+- Share import: `docs/PRD-SHARE-IMPORT.md` §9. Done through **S1** (audio on disk).
+  Next: pull the original transcript, then attempt the upload into Personal.
+- Migration: `docs/PRD.md` §9. Gate is **M0** (validate import + derived-data write).
+
+Both hit the same unproven step — writing into a Plaud workspace. Per decision
+O1, if that isn't possible via the API, we pause and reassess rather than
+reaching for browser automation.
 
 ## Contributing
 See `CONTRIBUTING.md`. Endpoint findings are the most useful contribution — as

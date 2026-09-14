@@ -38,9 +38,23 @@ if (allowedHosts.length === 0) {
   process.exit(1);
 }
 
+/**
+ * Accepts either a hostname or a `host:port` — URL.host carries the port, and an
+ * allowlist entry is a hostname, so the port is stripped before comparing.
+ */
+export function hostnameOf(host: string): string {
+  const h = host.trim().toLowerCase();
+  if (h.startsWith("[")) return h.slice(0, h.indexOf("]") + 1) || h; // IPv6 literal
+  const colon = h.indexOf(":");
+  return colon === -1 ? h : h.slice(0, colon);
+}
+
 export function isAllowedHost(host: string): boolean {
-  const h = host.toLowerCase();
-  return allowedHosts.some((a) => h === a || h.endsWith("." + a));
+  const h = hostnameOf(host);
+  return allowedHosts.some((a) => {
+    const allowed = hostnameOf(a);
+    return h === allowed || h.endsWith("." + allowed);
+  });
 }
 
 export const config = {

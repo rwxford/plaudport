@@ -73,6 +73,25 @@ export function suggestSlot(method: string, path: string): string | null {
   return null;
 }
 
+export interface MediaRequest {
+  url: string;
+  method: string;
+  host: string;
+  mimeType: string | null;
+  status: number | null;
+  bytes: number | null;
+  /** HLS/DASH playlist rather than a single downloadable file. */
+  isPlaylist: boolean;
+}
+
+/** Is this entry the page fetching audio/video? */
+export function isMediaRequest(entry: HarEntry, url: URL, mime: string): boolean {
+  if (entry._resourceType === "media") return true;
+  if (/^(audio|video)\//i.test(mime)) return true;
+  if (mime.includes("mpegurl")) return true; // HLS playlist
+  return /\.(mp3|m4a|wav|aac|ogg|flac|mp4|m4s|ts|m3u8|mpd)(\?|$)/i.test(url.pathname);
+}
+
 interface Group {
   method: string;
   host: string;
@@ -121,6 +140,7 @@ function main() {
 
   const groups = new Map<string, Group>();
   const hostCounts = new Map<string, number>();
+  const media: MediaRequest[] = [];
   let skippedNonApi = 0;
 
   for (const entry of entries) {
@@ -137,8 +157,24 @@ function main() {
 
     hostCounts.set(url.host, (hostCounts.get(url.host) ?? 0) + 1);
 
-    // Static assets are noise; keep XHR/fetch and anything that returned JSON.
     const mime = entry.response?.content?.mimeType ?? "";
+
+    // Media first: on a share page the audio request is the prize, and it is
+    // neither xhr/fetch nor JSON, so it must be recognised explicitly.
+    if (isMediaRequest(entry, url, mime)) {
+      media.push({
+        url: rawUrl,
+        method,
+        host: url.host,
+        mimeType: mime || null,
+        status: entry.response?.status ?? null,
+        bytes: entry.response?.content?.size ?? null,
+        isPlaylist: /\.m3u8(\?|$)/i.test(url.pathname) || mime.includes("mpegurl"),
+      });
+      continue;
+    }
+
+    // Static assets are noise; keep XHR/fetch and anything that returned JSON.
     const isApiish =
       entry._resourceType === "xhr" ||
       entry._resourceType === "fetch" ||
@@ -189,6 +225,27 @@ function main() {
     console.log(`  ${host}  (${n})${known ? "  [allowlisted]" : "  <- add to PLAUD_ALLOWED_HOSTS if this is the API"}`);
   }
 
+  // Media gets its own section, printed first: on a share page it is the point.
+  if (media.length) {
+    // Biggest first — the full recording outranks any preview blip.
+    media.sort((a, b) => (b.bytes ?? 0) - (a.bytes ?? 0));
+    console.log(`\nAudio / media requests (${media.length}) — query strings hidden here, full URLs in the JSON:`);
+    media.forEach((m, i) => {
+      const size = m.bytes ? `${(m.bytes / 1_048_576).toFixed(1)} MB` : "size unknown";
+      const base = m.url.split("?")[0] ?? m.url;
+      console.log(`  [${i}] ${m.mimeType ?? "?"}  ${size}  ${m.status ?? "?"}  ${base}${m.isPlaylist ? "  << streaming playlist" : ""}`);
+    });
+    if (media.some((m) => m.isPlaylist)) {
+      console.log("\n  Note: a playlist (.m3u8) means the audio is streamed in segments, not one file.");
+      console.log("  Stitching those needs ffmpeg — say so and it can be added.");
+    } else {
+      console.log("\n  To download the largest one:  npm run fetch:audio -- --from-scan");
+    }
+  } else {
+    console.log("\nNo audio/media requests in this HAR.");
+    console.log("  If you were expecting audio: re-record with the Network tab open and actually PLAY the recording.");
+  }
+
   console.log("\nCandidate endpoints:");
   const suggestions = new Map<string, string>();
   for (const g of sorted) {
@@ -219,6 +276,9 @@ function main() {
         scannedAt: new Date().toISOString(),
         entryCount: entries.length,
         hosts: Object.fromEntries(hostCounts),
+        // Full URLs, signatures included — this file stays local (data/ is gitignored)
+        // because `fetch:audio --from-scan` needs the signed URL to work.
+        mediaRequests: media,
         endpoints: sorted.map((g) => ({
           method: g.method,
           host: g.host,

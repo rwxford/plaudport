@@ -37,17 +37,29 @@ transcript · verify · report.
 (that is `PRD.md`), editing or re-sharing anything, any write to the *source*
 account.
 
-## 4. The gate: what does a share link actually expose? (**O-S1**)
-Everything depends on this, and it is unverified. `npm run probe:share` answers it.
+## 4. What a share link exposes (**O-S1 — partly answered, 2026-09-14**)
+Owner-confirmed: the share page **plays audio but offers no download link**, and
+the audio has been captured before by playing it. So the bytes are reachable over
+HTTP; only the affordance is missing.
 
-| Outcome | What it means | Path |
-|---|---|---|
-| **A. Audio + transcript both fetchable** | Best case. Full fidelity import. | Build as specified. |
-| **B. Transcript only, no audio** | D1 is impossible as stated. Either import a text-only item (if Plaud allows one) or hold the transcript locally. **Stop and re-decide with the owner.** |
-| **C. Neither — rendered page only** | Would require scraping rendered HTML, which is brittle and breaks on every redesign. **Stop and re-decide.** |
+That splits the work in a useful way:
 
-Per the O1 rule inherited from `PRD.md`: no browser automation fallback without
-explicit approval.
+| | Status |
+|---|---|
+| Audio exists and is fetchable | **Confirmed** by the owner |
+| Exact media URL / API shape | **Unknown** — settled by one HAR capture (`docs/GET-THE-AUDIO.md`) |
+| Single file vs HLS segments | **Unknown** — the scanner reports which; segments would need ffmpeg |
+| Uploading into Plaud | **Unproven** — shared with `PRD.md` M0 |
+
+### The fallback is the floor, not a consolation
+If the upload path turns out to be impossible, the owner still gets the mp3 on
+disk and imports it by hand through Plaud Web. So **the local audio file is the
+primary deliverable** and automated import is the stretch. Work is ordered
+accordingly: nothing downstream blocks on the unproven write path.
+
+Per the O1 rule inherited from `PRD.md`: no headless-browser fallback without
+explicit approval. Capturing a media URL from a HAR is not browser automation —
+it is reading one request the browser already made.
 
 ## 5. Pipeline (once O-S1 resolves as A)
 1. **Parse** — `src/shareUrl.ts`, already built and tested: splits `pub_<uuid>::<token>`, rejects non-Plaud hosts, never logs the full token.
@@ -87,8 +99,18 @@ different links still dedupes.
 6. Nothing in the repo or its reports ever contains the share token or meeting content.
 
 ## 9. Milestones
-- **S0 — Probe (now).** `probe:share` + `shareUrl` parsing. Resolves O-S1. ✅ built, awaiting a run on a real link.
-- **S1 — Fetch + backup.** Resolve a share to audio/transcript/summary and archive it locally. Read-only; safe to build as soon as S0 answers A.
-- **S2 — Import.** Upload audio into Personal. Needs the `importAudio` endpoint; shared with `PRD.md` M0.
-- **S3 — Attach + verify.** Original transcript onto the item; MCP-verified.
+- **S0 — Probe.** `probe:share` + share-link parsing. ✅ built and tested.
+- **S1 — Get the audio out.** ✅ built and tested: `scan:har` surfaces the page's
+  audio request, `fetch:audio --from-scan` streams it to disk with size + sha256
+  verification. **This alone satisfies the fallback** (hand-import into Plaud).
+  Awaiting one real HAR to confirm against the live page.
+- **S1b — Transcript + metadata.** Pull the original transcript/summary/title from
+  the share's own API (endpoint comes from the same HAR) and archive it beside the
+  audio. Read-only.
+- **S2 — Import.** Upload the audio into Personal. Needs the `importAudio`
+  endpoint; shared with `PRD.md` M0. Unproven.
+- **S3 — Attach + verify.** Original transcript onto the item, confirmed through
+  the official Plaud MCP.
 - **S4 — Local web UI.** Paste a link, click Import, watch progress (D4).
+- **S5 — HLS support (conditional).** Only if the audio turns out to be segmented;
+  needs ffmpeg. Skipped otherwise.
