@@ -31,6 +31,7 @@ interface ProbeReport {
   shareId: string;
   page: { status: number | null; contentType: string | null; bytes: number | null; note?: string };
   metaTags: Record<string, string>;
+  metaHosts?: string[];
   scripts: string[];
   embeddedJsonKeys: string[];
   mediaUrls: string[];
@@ -41,6 +42,15 @@ interface ProbeReport {
 
 const SHOW_RAW = process.argv.includes("--raw");
 
+/**
+ * Plaud serves a tiny meta-tags-only stub to anything that doesn't look like a
+ * browser — good for link previews in Slack, useless for finding the real app.
+ * Identifying as a browser gets the same page a person would see, which is the
+ * page whose behaviour we are trying to understand.
+ */
+const BROWSER_UA =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
+
 function redactText(s: string, label: string): string {
   return SHOW_RAW ? s : `<${label}:${s.length} chars>`;
 }
@@ -49,10 +59,32 @@ async function fetchText(url: string): Promise<{ status: number; contentType: st
   const host = new URL(url).host;
   if (!isAllowedHost(host)) throw new Error(`SSRF guard: host not allowlisted: ${host.toLowerCase()}`);
   const res = await fetch(url, {
-    headers: { Accept: "*/*", "User-Agent": "plaudport-probe" },
+    headers: {
+      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "en-US,en;q=0.9",
+      "User-Agent": BROWSER_UA,
+    },
     signal: AbortSignal.timeout(config.requestTimeoutMs),
   });
   return { status: res.status, contentType: res.headers.get("content-type"), body: await res.text() };
+}
+
+/**
+ * Hosts referenced by meta tags — og:image usually points at the media/thumbnail
+ * CDN, which is exactly the host the audio download will need allowlisted.
+ */
+function hostsInMeta(html: string): string[] {
+  const hosts = new Set<string>();
+  for (const m of html.matchAll(/content=["'](https?:\/\/[^"']+)["']/gi)) {
+    const v = m[1];
+    if (!v) continue;
+    try {
+      hosts.add(new URL(v).host.toLowerCase());
+    } catch {
+      /* ignore */
+    }
+  }
+  return [...hosts];
 }
 
 function extractMeta(html: string): Record<string, string> {
@@ -219,6 +251,15 @@ async function main() {
     console.log("\nMeta tags (content redacted unless --raw):");
     for (const [k, v] of Object.entries(report.metaTags)) console.log(`  ${k}: ${v}`);
     if (report.metaTags["og:audio"]) findings.push({ kind: "audio", detail: "page advertises og:audio" });
+
+    const metaHosts = hostsInMeta(html);
+    if (metaHosts.length) {
+      console.log("\nHosts referenced by those tags (og:image is usually the media CDN):");
+      for (const h of metaHosts) {
+        console.log(`  ${h}${isAllowedHost(h) ? "  [allowlisted]" : "  <- add to PLAUD_ALLOWED_HOSTS to fetch from here"}`);
+      }
+      report.metaHosts = metaHosts;
+    }
   }
 
   const embedded = extractEmbeddedJson(html);
@@ -247,6 +288,11 @@ async function main() {
   // --- 3. the JS bundles, where the endpoint paths live ---
   report.scripts = extractScripts(html, ref.url);
   console.log(`\nScripts referenced: ${report.scripts.length}`);
+  if (report.scripts.length === 0 && html.length < 8000) {
+    console.log("  A page this small with no scripts is the link-preview stub, not the real app.");
+    console.log("  Plaud decides what to serve from the request's identity; the HAR capture is definitive either way.");
+    findings.push({ kind: "page", detail: "served the link-preview stub rather than the app shell" });
+  }
   const paths = new Set<string>();
   let scanned = 0;
   for (const src of report.scripts) {
