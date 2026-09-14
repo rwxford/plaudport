@@ -83,18 +83,54 @@ async function main() {
   const audio = makeWav();
   const expected = createHash("sha256").update(audio).digest("hex");
 
-  // 1. a pretend share page that serves audio but offers no download link
+  // A stand-in for Plaud's public share API, shaped like the real one
+  // (recorded 2026-09-14 — see docs/SHARE-API.md).
+  const SHARE_ID = "pub_00000000-0000-4000-8000-000000000000";
+  const SHARE_TOKEN = "demo-token-not-a-real-one-0123456789";
+  const detail = {
+    status: 0,
+    object_type: "file",
+    owner_name: "Demo Owner",
+    is_audio: 1,
+    is_trans: 1,
+    is_ai_content: 1,
+    data_file: {
+      id: "0".repeat(32),
+      filename: "Demo meeting — self-test",
+      start_time: 1789402715000,
+      duration: 2000,
+      file_language: "en",
+      trans_result: [
+        { start_time: 0, end_time: 1000, speaker: "Alex", content: "First line of the demo transcript." },
+        { start_time: 1000, end_time: 2000, speaker: "Sam", content: "Second line." },
+      ],
+      transaction_polish: [{ start_time: 0, end_time: 2000, speaker: "Alex", content: "A polished line." }],
+      outline_result: [{ start_time: 0, end_time: 2000, topic: "Demo topic" }],
+      notes_list: [{ data_title: "Summary", data_content: "A demo summary." }],
+    },
+  };
+
+  let audioLinkRequests = 0;
+  let port = 0;
   const server = createServer((req, res) => {
-    if (req.url?.startsWith("/media/recording.wav")) {
+    const url = req.url ?? "";
+    if (url.startsWith("/media/recording.wav")) {
       res.writeHead(200, { "content-type": "audio/wav", "content-length": audio.length });
       res.end(audio);
+    } else if (url.includes("/share/access/") && url.endsWith("/audio")) {
+      audioLinkRequests++;
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ status: 0, temp_url: `http://127.0.0.1:${port}/media/recording.wav?signature=pretend` }));
+    } else if (url.includes("/share/access/")) {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify(detail));
     } else {
       res.writeHead(404);
       res.end();
     }
   });
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
-  const port = server.address().port;
+  port = server.address().port;
   console.log(`\nFake share server on 127.0.0.1:${port}, serving ${(audio.length / 1024).toFixed(0)} KB of audio\n`);
 
   // 2. the browser recording you would capture from the real page
@@ -151,8 +187,36 @@ async function main() {
     check(manifest.bytes === audio.length, "size recorded correctly");
   }
 
-  // 5. guards
-  console.log("\nStep 3: checking the safety guards…");
+  // 5. the real thing: fetch:share against the stand-in API
+  console.log("\nStep 3: fetching a share end to end (metadata + transcript + audio)…");
+  const shareEnv = {
+    PLAUD_ALLOWED_HOSTS: "127.0.0.1",
+    PLAUD_DATA_DIR: DEMO_DIR,
+    PLAUD_SHARE_API_BASE: `http://127.0.0.1:${port}`,
+  };
+  const share = await run(["src/shareFetch.ts", `${SHARE_ID}::${SHARE_TOKEN}`], shareEnv);
+  check(share.code === 0, "fetch:share ran");
+  check(/2 utterances/.test(share.out), "read the transcript from the API");
+
+  const shareDir = join(DEMO_DIR, "shares", `${SHARE_ID}-demo-meeting-self-test`);
+  const transcript = existsSync(join(shareDir, "transcript.txt"))
+    ? readFileSync(join(shareDir, "transcript.txt"), "utf8")
+    : "";
+  check(/\[0:00\] Alex: First line/.test(transcript), "wrote a readable transcript");
+  check(existsSync(join(shareDir, "recording.md")), "wrote the markdown archive");
+
+  const shareAudio = join(shareDir, "audio.mp3");
+  if (check(existsSync(shareAudio), "downloaded the share's audio")) {
+    const got = createHash("sha256").update(readFileSync(shareAudio)).digest("hex");
+    check(got === expected, "share audio matches what the API served");
+  }
+
+  const again = await run(["src/shareFetch.ts", `${SHARE_ID}::${SHARE_TOKEN}`], shareEnv);
+  check(/already archived/.test(again.out), "re-running skips the download instead of duplicating");
+  check(audioLinkRequests === 1, "asked for the audio link exactly once across both runs");
+
+  // 6. guards
+  console.log("\nStep 4: checking the safety guards…");
   const badHost = await run(["src/fetchAudio.ts", `http://127.0.0.1:${port}/media/recording.wav`], {
     PLAUD_DATA_DIR: DEMO_DIR,
   });

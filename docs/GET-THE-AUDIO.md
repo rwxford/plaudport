@@ -1,4 +1,9 @@
-# Getting the audio out of a Plaud share link
+# Getting the audio out of a Plaud share link (fallback route)
+
+> **You probably don't need this any more.** Plaud's share API turned out to be
+> unauthenticated, so `npm run fetch:share -- "<link>"` does all of this in one
+> command — see the README. Keep this page for the day Plaud changes that API and
+> we need to re-discover it, or when a share behaves unusually.
 
 A Plaud share page plays the recording but gives you no download button. The
 browser still has to fetch that audio over the network, so we record what it

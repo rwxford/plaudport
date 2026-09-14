@@ -23,6 +23,7 @@ and therefore reachable by the Plaud MCP from Claude.
 ### Decisions (2026-09-14)
 | # | Decision |
 |---|---|
+| D0 | Source side is solved without credentials (2026-09-14); the open question is only whether Plaud accepts an upload. |
 | D1 | Target shape is a **real recording**: audio + transcript, not a text note. |
 | D2 | Links come from **other people's accounts**; a public link is all we get. No source-side login. |
 | D3 | **One link at a time**, on demand. No batch, no watcher, no inbox scraping — yet. |
@@ -37,19 +38,23 @@ transcript · verify · report.
 (that is `PRD.md`), editing or re-sharing anything, any write to the *source*
 account.
 
-## 4. What a share link exposes (**O-S1 — partly answered, 2026-09-14**)
-Owner-confirmed: the share page **plays audio but offers no download link**, and
-the audio has been captured before by playing it. So the bytes are reachable over
-HTTP; only the affordance is missing.
-
-That splits the work in a useful way:
+## 4. What a share link exposes (**O-S1 — ANSWERED, 2026-09-14: outcome A**)
+Settled by a HAR capture of the real page. Plaud's share API is **unauthenticated**
+— the link is the credential — and returns everything but the audio bytes in one
+call, with a second call handing over a presigned S3 URL for the audio. Full
+shapes in `docs/SHARE-API.md`.
 
 | | Status |
 |---|---|
-| Audio exists and is fetchable | **Confirmed** by the owner |
-| Exact media URL / API shape | **Unknown** — settled by one HAR capture (`docs/GET-THE-AUDIO.md`) |
-| Single file vs HLS segments | **Unknown** — the scanner reports which; segments would need ffmpeg |
+| Audio | **Available** — single mp3, presigned, no HLS segments |
+| Transcript | **Available** — original *and* AI-polished, with speakers and timestamps |
+| Outline + notes/summary | **Available** |
+| Title, date, duration, language | **Available** |
+| Auth required | **None** |
 | Uploading into Plaud | **Unproven** — shared with `PRD.md` M0 |
+
+This is the best case in the original gate: D1 (a real recording with audio and
+transcript) is achievable on the *source* side. Only the destination side is open.
 
 ### The fallback is the floor, not a consolation
 If the upload path turns out to be impossible, the owner still gets the mp3 on
@@ -100,13 +105,13 @@ different links still dedupes.
 
 ## 9. Milestones
 - **S0 — Probe.** `probe:share` + share-link parsing. ✅ built and tested.
-- **S1 — Get the audio out.** ✅ built and tested: `scan:har` surfaces the page's
-  audio request, `fetch:audio --from-scan` streams it to disk with size + sha256
-  verification. **This alone satisfies the fallback** (hand-import into Plaud).
-  Awaiting one real HAR to confirm against the live page.
-- **S1b — Transcript + metadata.** Pull the original transcript/summary/title from
-  the share's own API (endpoint comes from the same HAR) and archive it beside the
-  audio. Read-only.
+- **S1 — Get the audio out.** ✅ `fetch:audio --from-scan` streams a media URL to
+  disk with size + sha256 verification. Now the fallback route, since S1b covers
+  the normal case.
+- **S1b — Full archive from the link alone.** ✅ `fetch:share` calls the share API
+  directly: audio, both transcripts, outline, notes, metadata, an integrity
+  manifest and a readable markdown archive. Idempotent. **This satisfies the
+  fallback in full** — hand-import the mp3 and nothing is lost.
 - **S2 — Import.** Upload the audio into Personal. Needs the `importAudio`
   endpoint; shared with `PRD.md` M0. Unproven.
 - **S3 — Attach + verify.** Original transcript onto the item, confirmed through

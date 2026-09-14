@@ -16,7 +16,13 @@ import { z } from "zod";
  */
 
 const SettingsSchema = z.object({
-  PLAUD_ALLOWED_HOSTS: z.string().optional().default("web.plaud.ai,api.plaud.ai"),
+  PLAUD_ALLOWED_HOSTS: z
+    .string()
+    .optional()
+    // resource.plaud.ai serves thumbnails; the S3 bucket is where share audio is
+    // presigned from (observed 2026-09-14). Override via .env if Plaud moves.
+    .default("web.plaud.ai,api.plaud.ai,resource.plaud.ai,plaud-bucket.s3.us-west-2.amazonaws.com"),
+  PLAUD_SHARE_API_BASE: z.string().url().optional().default("https://api.plaud.ai"),
   PLAUD_DATA_DIR: z.string().optional().default("./data"),
   PLAUD_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().optional().default(30_000),
   PLAUD_REDACT_SAMPLES: z.string().optional().default("true"),
@@ -59,6 +65,9 @@ export function isAllowedHost(host: string): boolean {
 
 export const config = {
   allowedHosts,
+  // Base for the public share API. Overridable so the self-test can point at a
+  // local stand-in, and so a Plaud move is a config change rather than a patch.
+  shareApiBase: settings.data.PLAUD_SHARE_API_BASE.replace(/\/+$/, ""),
   dataDir: settings.data.PLAUD_DATA_DIR,
   requestTimeoutMs: settings.data.PLAUD_REQUEST_TIMEOUT_MS,
   redactSamples: settings.data.PLAUD_REDACT_SAMPLES !== "false",

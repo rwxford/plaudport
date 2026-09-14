@@ -17,10 +17,10 @@ Runs entirely on your own machine. Nothing is hosted, and no data goes anywhere
 except between your Mac and Plaud.
 
 ## Status
-**Share import:** the audio path is built and tested — probe a link, find its
-audio request, download it verified. Confirmed: share pages play audio with no
-download link, so the audio is fetched over HTTP and can be captured. Still
-unproven: uploading it back into Plaud, so for now the mp3 is imported by hand.
+**Share import:** working end to end, minus the upload. Plaud's share API turned
+out to be unauthenticated, so one command retrieves a shared meeting's audio,
+transcript, outline and summary — no HAR capture, no token. Still unproven:
+writing it back into a Plaud workspace, so the mp3 is imported by hand for now.
 
 **Migration:** a **read-only spike** for Plaud's unofficial web API.
 
@@ -55,23 +55,28 @@ hook) fails the build if any of them get staged. See `SECURITY.md`.
 - For the migration side: a Plaud account with Personal + Team workspaces, and a
   bearer token captured from web.plaud.ai (see `docs/ENDPOINTS.md`)
 
-## Quick start — get the audio out of a share link
-
-A share page plays the recording but offers no download. Three commands put the
-mp3 on your disk. **No Plaud login and no configuration needed** — a share link
-works logged out, which is the whole point.
+## Quick start — archive a shared meeting
 
 ```bash
 npm install
-npm run probe:share -- "https://web.plaud.ai/s/pub_xxxxxxxx::xxxxxxxx"  # what does this link expose?
-npm run scan:har   -- ~/Downloads/web.plaud.ai.har                       # find the audio request
-npm run fetch:audio -- --from-scan                                       # download it, verified
+npm run fetch:share -- "https://web.plaud.ai/s/pub_xxxxxxxx::xxxxxxxx"
 ```
 
-The middle step needs a 2-minute browser recording — **`docs/GET-THE-AUDIO.md`
-walks through it click by click**. The result lands in `data/shares/` with its
-size and SHA-256 recorded, ready to import into Plaud by hand today, and ready
-for the automated importer once that path is proven.
+That's it. **No Plaud login, no token, no configuration** — a share link is its
+own authorisation (see `docs/SHARE-API.md`). One command pulls down:
+
+- `audio.mp3` — the recording, checksummed
+- `transcript.txt` — the original transcript, `[mm:ss] Speaker: text`
+- `transcript-polished.txt` — Plaud's AI-cleaned version
+- `recording.md` — title, date, length, summary, outline and both transcripts in
+  one readable document
+- `detail.json` + `manifest.json` — the raw response and an integrity record
+
+Everything lands in `data/shares/<share-id>-<title>/`. Re-running is safe: if the
+audio is already there and its checksum matches, it isn't downloaded again.
+
+Then import `audio.mp3` into Plaud by hand (Plaud Web → Personal → import audio).
+Automating that last step is the one thing still unproven.
 
 For the migration spike (needs your own token):
 
@@ -101,8 +106,9 @@ freshness); they're listed and commented out at the bottom of `.env.example`.
 ## Scripts
 | Command | What it does |
 |---|---|
-| `npm run probe:share -- "<link>"` | Report what a public share link exposes (no token needed) |
-| `npm run fetch:audio -- --from-scan` | Download the audio found by `scan:har`, with integrity check |
+| `npm run fetch:share -- "<link>"` | **Archive a shared meeting**: audio + transcript + notes |
+| `npm run probe:share -- "<link>"` | Report what a public share link exposes |
+| `npm run fetch:audio -- --from-scan` | Download audio found by `scan:har` (fallback route) |
 | `npm run scan:har -- <file.har>` | Derive the endpoint map from a DevTools HAR export (no token needed) |
 | `npm run demo` | End-to-end self-test with a fake share page — no Plaud needed |
 | `npm test` | Unit tests |
@@ -112,8 +118,9 @@ freshness); they're listed and commented out at the bottom of `.env.example`.
 | `npm run hooks:install` | Installs the secret check as a pre-commit hook |
 
 ## Roadmap
-- Share import: `docs/PRD-SHARE-IMPORT.md` §9. Done through **S1** (audio on disk).
-  Next: pull the original transcript, then attempt the upload into Personal.
+- Share import: `docs/PRD-SHARE-IMPORT.md` §9. Done through **S1b** — audio,
+  transcript, outline and notes all archived locally. Next: attempt the upload
+  into Personal.
 - Migration: `docs/PRD.md` §9. Gate is **M0** (validate import + derived-data write).
 
 Both hit the same unproven step — writing into a Plaud workspace. Per decision

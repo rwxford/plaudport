@@ -10,6 +10,7 @@
     "spike": "tsx src/spike.ts",
     "scan:har": "tsx src/harScan.ts",
     "probe:share": "tsx src/shareProbe.ts",
+    "fetch:share": "tsx src/shareFetch.ts",
     "fetch:audio": "tsx src/fetchAudio.ts",
     "test": "tsx --test src/*.test.ts",
     "demo": "node scripts/demo.mjs",

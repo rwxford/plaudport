@@ -9,6 +9,7 @@ workspace recordings/transcripts so they're reachable by the Plaud MCP from Clau
 | `README.md` | Project overview, configuration table, local run |
 | `docs/PRD-SHARE-IMPORT.md` | **Primary:** import a shared meeting into Personal |
 | `docs/PRD.md` | Secondary: Personal → Team consolidation (v2) |
+| `docs/SHARE-API.md` | Plaud's public share API, as observed |
 | `docs/TESTING.md` | How to verify it works, three levels |
 | `docs/GET-THE-AUDIO.md` | Click-by-click: pull the mp3 out of a share link |
 | `docs/ENDPOINTS.md` | How to capture the unofficial Plaud web API (M0 prerequisite) |
