@@ -104,6 +104,7 @@ freshness); they're listed and commented out at the bottom of `.env.example`.
 | `npm run probe:share -- "<link>"` | Report what a public share link exposes (no token needed) |
 | `npm run fetch:audio -- --from-scan` | Download the audio found by `scan:har`, with integrity check |
 | `npm run scan:har -- <file.har>` | Derive the endpoint map from a DevTools HAR export (no token needed) |
+| `npm run demo` | End-to-end self-test with a fake share page — no Plaud needed |
 | `npm test` | Unit tests |
 | `npm run spike` | M0 read-only probes → `data/spike-report.json` |
 | `npm run typecheck` | `tsc --noEmit` |
@@ -118,6 +119,10 @@ freshness); they're listed and commented out at the bottom of `.env.example`.
 Both hit the same unproven step — writing into a Plaud workspace. Per decision
 O1, if that isn't possible via the API, we pause and reassess rather than
 reaching for browser automation.
+
+## Testing
+`npm run demo` proves the whole pipeline on your own machine in 30 seconds,
+without a Plaud account. See `docs/TESTING.md` for all three levels.
 
 ## Contributing
 See `CONTRIBUTING.md`. Endpoint findings are the most useful contribution — as

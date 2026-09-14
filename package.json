@@ -12,6 +12,7 @@
     "probe:share": "tsx src/shareProbe.ts",
     "fetch:audio": "tsx src/fetchAudio.ts",
     "test": "tsx --test src/*.test.ts",
+    "demo": "node scripts/demo.mjs",
     "typecheck": "tsc --noEmit",
     "check:secrets": "bash scripts/check-no-secrets.sh",
     "hooks:install": "bash scripts/install-hooks.sh"
