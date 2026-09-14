@@ -22,5 +22,8 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Tests
+        run: npm test
+
       - name: Secret / data check
         run: npm run check:secrets

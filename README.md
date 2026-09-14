@@ -1,16 +1,26 @@
 # PlaudPort
 
-Local-first, single-user tool (macOS) to **back up** all your Plaud data and
-**consolidate** meeting recordings/transcripts from your **Personal** Plaud
-workspace into a **Team** workspace, so they're reachable by the Plaud MCP from
-Claude.
+Local-first, single-user tool (macOS) for getting Plaud recordings where you need
+them, so they're reachable by the Plaud MCP from Claude.
 
-Runs entirely on your own machine, against your own Plaud account. Nothing is
-hosted, and no data goes anywhere except between your Mac and Plaud.
+Two jobs, in priority order:
+
+1. **Import a shared meeting into your Plaud** *(primary)* — someone sends you a
+   `web.plaud.ai/s/pub_…` share link; this pulls it into your **Personal**
+   workspace as a real recording, audio and original transcript intact.
+   See `docs/PRD-SHARE-IMPORT.md`.
+2. **Consolidate Personal → Team** *(secondary)* — back up everything you own and
+   copy your own recordings into the Team workspace, private to you.
+   See `docs/PRD.md`.
+
+Runs entirely on your own machine. Nothing is hosted, and no data goes anywhere
+except between your Mac and Plaud.
 
 ## Status
-Pre-M0. Not yet functional. This repo currently contains the PRD and a
-**read-only spike** to validate Plaud's unofficial web API.
+Pre-flight on both. The share-link **probe** is built and tested (`npm run
+probe:share`) and needs one run against a real link to settle whether share pages
+expose audio — everything else waits on that answer. The migration side has a
+**read-only spike** for Plaud's unofficial web API.
 
 ## Why this exists
 - Plaud has no public general-purpose API.
@@ -42,9 +52,22 @@ hook) fails the build if any of them get staged. See `SECURITY.md`.
 - A Plaud account with Personal + Team workspaces
 - A bearer token captured from web.plaud.ai (see `docs/ENDPOINTS.md`)
 
-## Quick start (spike only)
+## Quick start
+
+Probing a share link needs **no Plaud login and no configuration** — a share link
+works logged out, which is the whole point:
+
 ```bash
 npm install
+npm run probe:share -- "https://web.plaud.ai/s/pub_xxxxxxxx::xxxxxxxx"
+```
+
+It reports what that link exposes — audio, transcript, API endpoints — as
+structure only, never the meeting's content.
+
+For the migration spike (needs your own token):
+
+```bash
 cp .env.example .env       # then fill PLAUD_API_BASE + PLAUD_TOKEN
 npm run hooks:install      # optional: pre-commit secret check
 npm run spike              # read-only probes; writes data/spike-report.json
@@ -70,7 +93,9 @@ freshness); they're listed and commented out at the bottom of `.env.example`.
 ## Scripts
 | Command | What it does |
 |---|---|
+| `npm run probe:share -- "<link>"` | Report what a public share link exposes (no token needed) |
 | `npm run scan:har -- <file.har>` | Derive the endpoint map from a DevTools HAR export (no token needed) |
+| `npm test` | Unit tests |
 | `npm run spike` | M0 read-only probes → `data/spike-report.json` |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run check:secrets` | Fails if secrets or Plaud data are tracked by git |

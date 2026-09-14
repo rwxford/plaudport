@@ -7,7 +7,8 @@ workspace recordings/transcripts so they're reachable by the Plaud MCP from Clau
 | File | Purpose |
 |---|---|
 | `README.md` | Project overview, configuration table, local run |
-| `docs/PRD.md` | Product Requirements (v2) |
+| `docs/PRD-SHARE-IMPORT.md` | **Primary:** import a shared meeting into Personal |
+| `docs/PRD.md` | Secondary: Personal → Team consolidation (v2) |
 | `docs/ENDPOINTS.md` | How to capture the unofficial Plaud web API (M0 prerequisite) |
 | `SECURITY.md` | What must never enter this public repo; token handling |
 | `CONTRIBUTING.md` | Setup, ground rules, how to share endpoint findings |
