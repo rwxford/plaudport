@@ -4,13 +4,24 @@ Recorded from a real import on **2026-09-15**. Unofficial and undocumented.
 
 No values from the observed session appear here — endpoint shapes only.
 
-> **Caveat on everything below.** It was derived from a HAR export, and Chrome's
-> "Export HAR (sanitized)" strips `Authorization` and `Cookie` headers. A capture
-> can therefore look credential-free when it was not. `x-pld-user` alone has not
-> yet authenticated a request from this tool, so treat the claim below as
-> unconfirmed until a live call succeeds.
+## Authentication: `Authorization: Bearer`, plus `x-pld-user`
 
-## Authentication: `x-pld-user`
+**Corrected 2026-09-15.** This document first claimed `x-pld-user` was the
+credential, because the HAR it was derived from showed no `Authorization` or
+`Cookie` header on any request. That was an artifact of the export: Chrome's
+**"Export HAR (sanitized)" strips both**. Checking the same request live in
+DevTools shows an `Authorization: Bearer …` header *and* a session cookie.
+
+`x-pld-user` accompanies the requests that touch the owner's data, but it does
+not authenticate them on its own — sending it alone returns
+`401 {"detail":"Not authenticated"}`, FastAPI's message for a security
+dependency (`HTTPBearer`) finding nothing it recognises.
+
+**Lesson for the next capture:** always export with *"with sensitive data"*, and
+treat a capture with no auth headers as suspect rather than informative.
+`scan:upload` now says so when it sees one.
+
+### The other headers
 
 The write endpoints are authenticated by an **`x-pld-user`** header, not an
 `Authorization: Bearer`. It appears on exactly the requests that touch the

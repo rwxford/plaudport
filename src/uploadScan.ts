@@ -181,6 +181,19 @@ function main() {
 
   console.log(`\n=== Upload flow: ${writes.length} write request(s), in order ===\n`);
 
+  // Chrome's "Export HAR (sanitized)" removes Authorization and Cookie. A
+  // capture missing both on authenticated endpoints is almost certainly
+  // sanitized rather than genuinely credential-free — and concluding the latter
+  // sends you hunting for an auth mechanism that was simply redacted.
+  const authHeaderNames = new Set(
+    writes.flatMap((e) => (e.request?.headers ?? []).map((h) => h.name.toLowerCase())),
+  );
+  if (!authHeaderNames.has("authorization") && !authHeaderNames.has("cookie")) {
+    console.log("NOTE: no Authorization or Cookie header appears anywhere in this capture.");
+    console.log("Chrome's \"Export HAR (sanitized)\" strips both. If you were signed in, re-export");
+    console.log("with \"Export HAR (with sensitive data)\" before concluding how auth works.\n");
+  }
+
   const records = writes.map((e, i) => {
     const url = new URL(e.request!.url!);
     const method = (e.request?.method ?? "GET").toUpperCase();
