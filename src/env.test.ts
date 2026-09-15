@@ -1,4 +1,4 @@
-import { parseEnv } from "./env.js";
+import { parseEnv, unwrapValue } from "./env.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -33,4 +33,21 @@ test("skips malformed lines rather than inventing keys", () => {
 
 test("an empty value is kept, since it means 'not filled in'", () => {
   assert.deepEqual(parseEnv("PLAUD_TOKEN="), { PLAUD_TOKEN: "" });
+});
+
+test("unwrapValue strips placeholder brackets and quotes", () => {
+  // The real case: "<paste it here>" reads as part of the instruction, so the
+  // brackets get copied with the value and the API rejects the header.
+  assert.equal(unwrapValue("<Bearer eyJabc>"), "Bearer eyJabc");
+  assert.equal(unwrapValue('"Bearer eyJabc"'), "Bearer eyJabc");
+  assert.equal(unwrapValue("  Bearer eyJabc  "), "Bearer eyJabc");
+  assert.equal(unwrapValue("`token`"), "token");
+});
+
+test("unwrapValue leaves legitimate values alone", () => {
+  assert.equal(unwrapValue("Bearer eyJabc"), "Bearer eyJabc");
+  // Angle brackets that are not a matching pair must survive untouched.
+  assert.equal(unwrapValue("abc>def"), "abc>def");
+  assert.equal(unwrapValue("<notclosed"), "<notclosed");
+  assert.equal(unwrapValue(""), "");
 });

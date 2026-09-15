@@ -42,6 +42,20 @@ export function parseEnv(contents: string): Record<string, string> {
   return out;
 }
 
+/**
+ * Strip wrappers people paste along with a credential: angle brackets from a
+ * placeholder like <paste-here>, surrounding quotes, and stray whitespace.
+ * Copying the brackets is an easy mistake and produces a baffling error from the
+ * far end ("invalid auth header") rather than anything pointing at the cause.
+ */
+export function unwrapValue(value: string): string {
+  let v = value.trim();
+  for (const [open, close] of [["<", ">"], ['"', '"'], ["'", "'"], ["`", "`"]]) {
+    if (v.length >= 2 && v.startsWith(open!) && v.endsWith(close!)) v = v.slice(1, -1).trim();
+  }
+  return v;
+}
+
 /** Load `.env` into process.env without clobbering anything already set. */
 export function loadEnvFile(path = ".env"): void {
   if (!existsSync(path)) return;

@@ -1,4 +1,5 @@
 import { config, getDeviceId, isAllowedHost, requireUserToken } from "./config.js";
+import { unwrapValue } from "./env.js";
 import { randomBytes, randomUUID } from "node:crypto";
 
 /**
@@ -88,8 +89,8 @@ function apiHeaders(token: string, extra: Record<string, string> = {}): Record<s
   // Chrome's "Export HAR (sanitized)" strips Authorization and Cookie, so a
   // capture can look credential-free when it was not. Both are supported and
   // sent when set; x-pld-user alone may not be what authenticates these calls.
-  const cookie = (process.env.PLAUD_COOKIE ?? "").trim();
-  const auth = (process.env.PLAUD_AUTH ?? "").trim();
+  const cookie = unwrapValue(process.env.PLAUD_COOKIE ?? "");
+  const auth = unwrapValue(process.env.PLAUD_AUTH ?? "");
   return {
     ...(cookie ? { cookie } : {}),
     // Accepts a bare token or a full "Bearer x" value — people copy both.

@@ -1,4 +1,4 @@
-import { loadEnvFile } from "./env.js";
+import { loadEnvFile, unwrapValue } from "./env.js";
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
 
@@ -120,14 +120,14 @@ let deviceId: string | null = null;
 
 export function getDeviceId(): string {
   if (deviceId) return deviceId;
-  const configured = (process.env.PLAUD_DEVICE_ID ?? "").trim();
+  const configured = unwrapValue(process.env.PLAUD_DEVICE_ID ?? "");
   deviceId = configured || randomBytes(8).toString("hex");
   return deviceId;
 }
 
 export function requireUserToken(): string {
   if (cachedUserToken) return cachedUserToken;
-  const token = (process.env.PLAUD_USER_TOKEN ?? "").trim();
+  const token = unwrapValue(process.env.PLAUD_USER_TOKEN ?? "");
   if (token.length < 10) {
     console.error(
       "PLAUD_USER_TOKEN is not set.\n" +

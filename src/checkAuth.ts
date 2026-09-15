@@ -1,4 +1,5 @@
 import { getDeviceId } from "./config.js";
+import { unwrapValue } from "./env.js";
 import { requestUpload, UploadError } from "./uploadClient.js";
 
 /**
@@ -15,6 +16,14 @@ import { requestUpload, UploadError } from "./uploadClient.js";
  * the credential anywhere.
  */
 
+function wrapperWarning(name: string, raw: string): string | null {
+  const v = raw.trim();
+  if (!v) return null;
+  if (/^<.*>$/s.test(v)) return `${name} is wrapped in < > — placeholder brackets got copied with the value.`;
+  if (/^".*"$/s.test(v) || /^'.*'$/s.test(v)) return `${name} is wrapped in quotes.`;
+  return null;
+}
+
 function fingerprint(value: string): string {
   if (!value) return "(not set)";
   if (value.length <= 8) return `${value.length} chars (too short to be right)`;
@@ -22,13 +31,13 @@ function fingerprint(value: string): string {
 }
 
 async function main() {
-  const token = (process.env.PLAUD_USER_TOKEN ?? "").trim();
+  const token = unwrapValue(process.env.PLAUD_USER_TOKEN ?? "");
   const rawToken = process.env.PLAUD_USER_TOKEN ?? "";
 
   console.log("\nCredentials as this tool loaded them:\n");
   console.log(`  PLAUD_USER_TOKEN  ${fingerprint(token)}`);
   console.log(`  PLAUD_DEVICE_ID   ${process.env.PLAUD_DEVICE_ID ? fingerprint(process.env.PLAUD_DEVICE_ID.trim()) : `(not set — using ${getDeviceId()})`}`);
-  console.log(`  PLAUD_AUTH        ${process.env.PLAUD_AUTH ? fingerprint(process.env.PLAUD_AUTH.trim()) : "(not set)"}`);
+  console.log(`  PLAUD_AUTH        ${process.env.PLAUD_AUTH ? fingerprint(unwrapValue(process.env.PLAUD_AUTH)) : "(not set)"}`);
   console.log(`  PLAUD_COOKIE      ${process.env.PLAUD_COOKIE ? "set" : "(not set)"}`);
 
   if (rawToken !== token) {
@@ -36,6 +45,14 @@ async function main() {
   }
   if (/\s/.test(token)) {
     console.log("\n  WARNING: the token contains a space. It was probably copied with something extra.");
+  }
+  for (const [name, raw] of [
+    ["PLAUD_USER_TOKEN", process.env.PLAUD_USER_TOKEN],
+    ["PLAUD_AUTH", process.env.PLAUD_AUTH],
+    ["PLAUD_COOKIE", process.env.PLAUD_COOKIE],
+  ] as const) {
+    const warning = wrapperWarning(name, raw ?? "");
+    if (warning) console.log(`\n  NOTE: ${warning} Stripped automatically, but worth fixing in .env.`);
   }
 
   console.log("\nCompare the first/last characters and the length against DevTools:");
