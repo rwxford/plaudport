@@ -81,3 +81,12 @@ test("slugify keeps titles safe as folder names", () => {
   assert.equal(slugify(undefined), "recording");
   assert.ok(slugify("x".repeat(200)).length <= 60);
 });
+
+test("slugify cuts long titles at a word boundary, not mid-word", () => {
+  const slug = slugify("09-14 Meeting: GDA Funding Delays, License Updates, and Contract Extension");
+  assert.ok(slug.length <= 60);
+  assert.ok(!slug.endsWith("-"), "no trailing separator");
+  assert.equal(slug, "09-14-meeting-gda-funding-delays-license-updates-and");
+  // A single very long word has no boundary to cut on; it must not vanish.
+  assert.equal(slugify("supercalifragilisticexpialidocious".repeat(3)).length, 60);
+});

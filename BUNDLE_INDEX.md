@@ -11,6 +11,7 @@ workspace recordings/transcripts so they're reachable by the Plaud MCP from Clau
 | `docs/PRD.md` | Secondary: Personal → Team consolidation (v2) |
 | `docs/SHARE-API.md` | Plaud's public share API, as observed |
 | `docs/TESTING.md` | How to verify it works, three levels |
+| `docs/CAPTURE-UPLOAD.md` | How to record Plaud importing audio, so we can automate it |
 | `docs/GET-THE-AUDIO.md` | Click-by-click: pull the mp3 out of a share link |
 | `docs/ENDPOINTS.md` | How to capture the unofficial Plaud web API (M0 prerequisite) |
 | `SECURITY.md` | What must never enter this public repo; token handling |

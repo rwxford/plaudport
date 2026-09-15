@@ -17,10 +17,11 @@ Runs entirely on your own machine. Nothing is hosted, and no data goes anywhere
 except between your Mac and Plaud.
 
 ## Status
-**Share import:** working end to end, minus the upload. Plaud's share API turned
-out to be unauthenticated, so one command retrieves a shared meeting's audio,
-transcript, outline and summary — no HAR capture, no token. Still unproven:
-writing it back into a Plaud workspace, so the mp3 is imported by hand for now.
+**Share import:** working end to end against the real API, minus the upload.
+One command retrieves a shared meeting's audio, transcript, outline and summary —
+no login, no token, no HAR capture. Still unproven: writing it back into a Plaud
+workspace, so the mp3 is imported by hand for now. `docs/CAPTURE-UPLOAD.md` is
+the plan for closing that gap.
 
 **Migration:** a **read-only spike** for Plaud's unofficial web API.
 
@@ -109,7 +110,8 @@ freshness); they're listed and commented out at the bottom of `.env.example`.
 | `npm run fetch:share -- "<link>"` | **Archive a shared meeting**: audio + transcript + notes |
 | `npm run probe:share -- "<link>"` | Report what a public share link exposes |
 | `npm run fetch:audio -- --from-scan` | Download audio found by `scan:har` (fallback route) |
-| `npm run scan:har -- <file.har>` | Derive the endpoint map from a DevTools HAR export (no token needed) |
+| `npm run scan:har -- <file.har>` | Derive the endpoint map from a DevTools HAR export |
+| `npm run scan:upload -- <file.har>` | Work out how the web app uploads audio (for the import step) |
 | `npm run demo` | End-to-end self-test with a fake share page — no Plaud needed |
 | `npm test` | Unit tests |
 | `npm run spike` | M0 read-only probes → `data/spike-report.json` |

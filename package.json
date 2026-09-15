@@ -9,6 +9,7 @@
   "scripts": {
     "spike": "tsx src/spike.ts",
     "scan:har": "tsx src/harScan.ts",
+    "scan:upload": "tsx src/uploadScan.ts",
     "probe:share": "tsx src/shareProbe.ts",
     "fetch:share": "tsx src/shareFetch.ts",
     "fetch:audio": "tsx src/fetchAudio.ts",

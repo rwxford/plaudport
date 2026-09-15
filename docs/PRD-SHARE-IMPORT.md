@@ -38,6 +38,11 @@ transcript · verify · report.
 (that is `PRD.md`), editing or re-sharing anything, any write to the *source*
 account.
 
+> **Confirmed working against the live API on 2026-09-15**: one command returned a
+> 10m 35s meeting — 9.3 MB of audio, 35 transcript utterances, 35 polished, a
+> 25-topic outline and its notes. The API additionally requires the web app's
+> request headers (see `docs/SHARE-API.md`); without them it answers 403.
+
 ## 4. What a share link exposes (**O-S1 — ANSWERED, 2026-09-14: outcome A**)
 Settled by a HAR capture of the real page. Plaud's share API is **unauthenticated**
 — the link is the credential — and returns everything but the audio bytes in one
@@ -112,8 +117,9 @@ different links still dedupes.
   directly: audio, both transcripts, outline, notes, metadata, an integrity
   manifest and a readable markdown archive. Idempotent. **This satisfies the
   fallback in full** — hand-import the mp3 and nothing is lost.
-- **S2 — Import.** Upload the audio into Personal. Needs the `importAudio`
-  endpoint; shared with `PRD.md` M0. Unproven.
+- **S2 — Import.** Upload the audio into Personal. Needs the upload flow, which
+  `scan:upload` + `docs/CAPTURE-UPLOAD.md` exist to discover. Shared with
+  `PRD.md` M0. **Unproven — the only thing left.**
 - **S3 — Attach + verify.** Original transcript onto the item, confirmed through
   the official Plaud MCP.
 - **S4 — Local web UI.** Paste a link, click Import, watch progress (D4).

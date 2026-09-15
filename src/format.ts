@@ -83,6 +83,11 @@ export function slugify(title: string | undefined, fallback = "recording"): stri
     .replace(/\s+/g, "-")
     .replace(/-+/g, "-")
     .slice(0, 60)
+    // Trim a half-word left by the cut, unless that would leave almost nothing.
+    .replace(/-[^-]*$/, (m, ...rest) => {
+      const cutAt = (rest[rest.length - 2] as number) ?? 0;
+      return cutAt >= 20 ? "" : m;
+    })
     .replace(/^-|-$/g, "")
     .toLowerCase();
   return slug || fallback;
