@@ -285,6 +285,8 @@ async function main() {
   check(!/\.(mp3|wav)$/i.test(confirmBody?.filename ?? ""), "filename sent without its extension");
   check(confirmBody?.start_time === Date.parse("2026-09-14T16:18:35.000Z"), "kept the ORIGINAL recording date, not the upload time");
   check(typeof confirmBody?.timezone === "number", "timezone sent as a UTC offset number");
+  check(Number.isInteger(confirmBody?.session_id), "session_id sent as an integer, not a UUID");
+  check(typeof confirmBody?.serial_number === "string" && confirmBody.serial_number.length === 36, "serial_number sent as a 36-char string");
 
   const finalManifest = JSON.parse(readFileSync(join(shareDir, "manifest.json"), "utf8"));
   check(finalManifest.importedFileId === "demo-file-id", "recorded the new file id in the archive manifest");

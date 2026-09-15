@@ -237,7 +237,12 @@ export interface ConfirmOptions {
   filename: string;
   /** Epoch ms. This is what dates the recording — pass the ORIGINAL meeting time. */
   startTime: number;
-  sessionId: string;
+  /**
+   * An INTEGER, despite /file/welcome returning a UUID-shaped `session_id` — a
+   * different thing with the same name. A web import has no recording session,
+   * and 0 is what that means here.
+   */
+  sessionId?: number;
   fileType?: string;
 }
 
@@ -251,7 +256,7 @@ export async function confirmUpload(opts: ConfirmOptions): Promise<ConfirmedFile
     file_type: opts.fileType ?? "MP3",
     filename: opts.filename.replace(/\.[a-z0-9]{1,5}$/i, ""),
     start_time: opts.startTime,
-    session_id: opts.sessionId,
+    session_id: opts.sessionId ?? 0,
     // 36 chars in the observed request, i.e. a UUID. Nothing ties it to hardware.
     serial_number: randomUUID(),
     timezone: utcOffsetHours(),

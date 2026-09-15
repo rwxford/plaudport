@@ -117,8 +117,13 @@ was uploaded.
 | `filename` | title **without** extension | the web app sent `"audio"` for `audio.mp3` |
 | `start_time` | epoch ms | ours to choose — use the original recording time |
 | `timezone` | **number**, e.g. `-4` | a UTC offset, *not* the IANA string the share API's header wants |
-| `session_id` | from `POST /file/welcome` | |
-| `serial_number` | a UUID | 36 chars; nothing ties it to hardware |
+| `session_id` | **integer**, `0` for a web import | NOT the UUID-shaped `session_id` that `/file/welcome` returns — same name, different thing. Sending a UUID gets `422 int_parsing`. |
+| `serial_number` | a UUID **string** | 36 chars; nothing ties it to hardware |
+
+The two are easy to mix up, and a capture makes it worse: a redacting scanner
+shows a masked string with its length (`<masked:36>`) but a masked number without
+one (`<masked>`). That distinction is the only hint in the capture that
+`session_id` is numeric.
 
 ## Capturing your `x-pld-user`
 

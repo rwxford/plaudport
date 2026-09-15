@@ -2,7 +2,6 @@ import { config } from "./config.js";
 import { humanDuration } from "./format.js";
 import {
   confirmUpload,
-  fetchSession,
   mergeParts,
   PART_SIZE,
   planParts,
@@ -12,7 +11,7 @@ import {
   utcOffsetHours,
   type UploadedPart,
 } from "./uploadClient.js";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 
@@ -123,19 +122,13 @@ async function main() {
   }
 
   try {
-    // /file/welcome behaves unlike the rest of the API — in a captured browser
-    // session it carried no x-pld-user at all. Its only contribution is a
-    // session id, so a failure here must not block the upload: fall back to a
-    // generated one and let the endpoints that matter decide.
-    let sessionId: string;
-    try {
-      const session = await fetchSession();
-      sessionId = session?.session_id ?? randomUUID();
-      if (!session?.session_id) console.log("  (no session id returned; using a generated one)");
-    } catch (e) {
-      console.log(`  (couldn't read a session id: ${e instanceof UploadError ? e.message.split("\n")[0] : String(e)})`);
-      console.log("  Continuing with a generated one — the upload endpoints are the real test.");
-      sessionId = randomUUID();
+    // confirm_upload's session_id is an integer identifying a recording session
+    // on a device. A web import has none, so 0. (/file/welcome returns a
+    // UUID-shaped `session_id` — same name, different thing, not this.)
+    const sessionId = Number(arg("--session-id") ?? 0);
+    if (!Number.isInteger(sessionId)) {
+      console.error("--session-id must be a whole number.");
+      process.exit(1);
     }
 
     const target = await requestUpload(bytes);
