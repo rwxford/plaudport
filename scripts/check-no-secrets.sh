@@ -31,7 +31,7 @@ b='[Bb]earer'
 patterns=(
   "${b} [A-Za-z0-9._~+/-]{20,}"          # bearer token
   "eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"  # JWT
-  "PLAUD_TOKEN=.+"                        # filled-in token
+  "PLAUD(_USER)?_TOKEN=[A-Za-z0-9_./+-]{10,}"  # a FILLED-IN token, not an empty one
   "gh[pousr]_[A-Za-z0-9]{20,}"            # GitHub token
   "AKIA[0-9A-Z]{16}"                      # AWS access key id
   "sk-[A-Za-z0-9]{20,}"                   # generic API key

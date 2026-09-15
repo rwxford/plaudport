@@ -54,6 +54,27 @@ export function utcOffsetHours(date = new Date()): number {
   return -date.getTimezoneOffset() / 60;
 }
 
+/**
+ * fetch throws a bare TypeError when the network fails, which reaches the user
+ * as an unreadable stack trace. Turn it into something that says what happened.
+ */
+async function withNetworkErrors(host: string, run: () => Promise<Response>): Promise<Response> {
+  try {
+    return await run();
+  } catch (e) {
+    const cause = (e as { cause?: { code?: string } })?.cause?.code ?? (e as Error)?.name;
+    const hint =
+      cause === "ENOTFOUND" || cause === "EAI_AGAIN"
+        ? "Check your internet connection or DNS."
+        : cause === "ECONNREFUSED"
+          ? "Nothing is listening there. Check PLAUD_SHARE_API_BASE in .env."
+          : cause === "TimeoutError"
+            ? "The upload timed out. A slow connection may need a larger PLAUD_REQUEST_TIMEOUT_MS."
+            : undefined;
+    throw new UploadError(`Could not reach ${host}${cause ? ` (${cause})` : ""}`, hint);
+  }
+}
+
 function apiHeaders(token: string, extra: Record<string, string> = {}): Record<string, string> {
   return {
     accept: "application/json, text/plain, */*",
@@ -77,12 +98,14 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
   const host = new URL(url).host;
   if (!isAllowedHost(host)) throw new UploadError(`SSRF guard: host not allowlisted: ${host.toLowerCase()}`);
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: apiHeaders(token, { "content-type": "application/json" }),
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(config.requestTimeoutMs),
-  });
+  const res = await withNetworkErrors(host, () =>
+    fetch(url, {
+      method: "POST",
+      headers: apiHeaders(token, { "content-type": "application/json" }),
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(config.requestTimeoutMs),
+    }),
+  );
 
   const text = await res.text();
   if (!res.ok) {
@@ -134,12 +157,14 @@ export async function uploadPart(partUrl: string, partNumber: number, body: Buff
     );
   }
 
-  const res = await fetch(partUrl, {
-    method: "PUT",
-    body: new Uint8Array(body),
-    // A part can be 5 MB over a slow uplink.
-    signal: AbortSignal.timeout(Math.max(config.requestTimeoutMs, 600_000)),
-  });
+  const res = await withNetworkErrors(host, () =>
+    fetch(partUrl, {
+      method: "PUT",
+      body: new Uint8Array(body),
+      // A part can be 5 MB over a slow uplink.
+      signal: AbortSignal.timeout(Math.max(config.requestTimeoutMs, 600_000)),
+    }),
+  );
 
   if (!res.ok) {
     throw new UploadError(

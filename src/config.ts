@@ -1,3 +1,4 @@
+import { loadEnvFile } from "./env.js";
 import { z } from "zod";
 
 /**
@@ -14,6 +15,9 @@ import { z } from "zod";
  * Every setting comes from the environment (see .env.example). Nothing secret is
  * ever hardcoded here — this file is public.
  */
+
+// Before anything reads process.env: real env vars still win over the file.
+loadEnvFile();
 
 const SettingsSchema = z.object({
   PLAUD_ALLOWED_HOSTS: z
