@@ -36,6 +36,17 @@ npm run scan:upload -- ~/Downloads/import.har
 
 (or type `npm run scan:upload -- ` and drag the file into Terminal)
 
+## If I've asked for request values
+
+```bash
+npm run scan:upload -- ~/Downloads/import.har --show-body
+```
+
+adds the API request bodies, with anything credential-shaped masked
+(`token`, `auth`, `secret`, `signature`, `session_id`, `serial`, `*_key`).
+S3 and telemetry requests never have their bodies printed at all. Skim it before
+pasting, as you would any output.
+
 ## What to send back
 
 Paste the terminal output. It prints the write requests **in order**, with each

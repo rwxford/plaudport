@@ -31,7 +31,11 @@ interface HarEntry {
     };
     bodySize?: number;
   };
-  response?: { status?: number; content?: { mimeType?: string; text?: string; size?: number } };
+  response?: {
+    status?: number;
+    headers?: Array<{ name: string; value: string }>;
+    content?: { mimeType?: string; text?: string; size?: number };
+  };
 }
 
 /** Telemetry and third-party noise — never part of an upload flow. */
@@ -50,6 +54,8 @@ const NOISE = [
   "googleapis.com",
   "cloudflareinsights.com",
   "google.com",
+  // Plaud's Sentry endpoint: crash telemetry, never part of an upload.
+  "guardian-web.plaud.ai",
 ];
 
 const isNoise = (host: string) => NOISE.some((n) => host === n || host.endsWith("." + n));
@@ -65,6 +71,22 @@ function templatePath(pathname: string): string {
       return seg;
     })
     .join("/");
+}
+
+const SHOW_BODY = process.argv.includes("--show-body");
+
+/** Keys whose values are never printed, even with --show-body. */
+const SECRET_KEY = /token|auth|secret|password|signature|credential|cookie|session_id|serial|key$/i;
+
+/** Values of an API request body, with anything credential-shaped masked. */
+function maskValues(v: unknown, key = ""): unknown {
+  if (SECRET_KEY.test(key)) return typeof v === "string" ? `<masked:${v.length}>` : "<masked>";
+  if (Array.isArray(v)) return v.slice(0, 2).map((x) => maskValues(x));
+  if (v && typeof v === "object") {
+    return Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, maskValues(x, k)]));
+  }
+  if (typeof v === "string" && v.length > 80) return `<string:${v.length}>`;
+  return v;
 }
 
 /** What the request carried, described without quoting any of it. */
@@ -86,6 +108,11 @@ function describeBody(entry: HarEntry): { kind: string; detail: string } {
     try {
       const parsed = JSON.parse(post.text);
       const keys = Object.keys(parsed as object);
+      if (SHOW_BODY) {
+        // Values matter for replicating the flow (scene, file_type, is_tmp...).
+        // Credential-shaped keys stay masked; S3 and telemetry never reach here.
+        return { kind: "json", detail: JSON.stringify(maskValues(parsed)).slice(0, 600) };
+      }
       return { kind: "json", detail: `keys: ${keys.join(", ")}` };
     } catch {
       return { kind: "json", detail: "unparseable body" };
@@ -130,6 +157,8 @@ function main() {
       const method = (e.request?.method ?? "GET").toUpperCase();
       const url = e.request?.url;
       if (!url) return false;
+      // CORS preflights carry no information about the flow.
+      if (method === "OPTIONS") return false;
       let host: string;
       try {
         host = new URL(url).host.toLowerCase();
@@ -167,6 +196,10 @@ function main() {
     if (url.search) console.log(`     query: ${[...url.searchParams.keys()].join(", ")}`);
     if (customHeaders.length) console.log(`     headers: ${[...new Set(customHeaders)].join(", ")}`);
     if (shape !== undefined) console.log(`     response: ${JSON.stringify(shape).slice(0, 400)}`);
+    const respHeaders = (e.response?.headers ?? [])
+      .map((h) => h.name.toLowerCase())
+      .filter((n) => ["etag", "location", "x-amz-version-id"].includes(n));
+    if (respHeaders.length) console.log(`     response headers: ${respHeaders.join(", ")}`);
     console.log();
 
     return {
@@ -187,7 +220,12 @@ function main() {
   writeFileSync(out, JSON.stringify({ scannedAt: new Date().toISOString(), requests: records }, null, 2));
 
   console.log(`Wrote ${out}`);
-  console.log("Names and shapes only — no header values, no body contents, no token.");
+  if (SHOW_BODY) {
+    console.log("Request bodies shown with credential-shaped values masked. Skim before pasting.");
+  } else {
+    console.log("Names and shapes only — no header values, no body contents, no token.");
+    console.log("Re-run with --show-body to include API request values (still masks anything secret).");
+  }
   console.log("Safe to paste the output above back to me.");
 }
 
