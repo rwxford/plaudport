@@ -1,4 +1,4 @@
-import { config, isAllowedHost, requireUserToken } from "./config.js";
+import { config, getDeviceId, isAllowedHost, requireUserToken } from "./config.js";
 import { randomBytes, randomUUID } from "node:crypto";
 
 /**
@@ -99,7 +99,7 @@ function apiHeaders(token: string, extra: Record<string, string> = {}): Record<s
     origin: WEB_APP_ORIGIN,
     referer: `${WEB_APP_ORIGIN}/`,
     "user-agent": BROWSER_UA,
-    "x-device-id": randomBytes(8).toString("hex"),
+    "x-device-id": getDeviceId(),
     "x-request-id": randomBytes(6).toString("hex"),
     "x-pld-user": token,
     ...extra,

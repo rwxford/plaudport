@@ -1,4 +1,5 @@
 import { loadEnvFile } from "./env.js";
+import { randomBytes } from "node:crypto";
 import { z } from "zod";
 
 /**
@@ -107,6 +108,22 @@ export const config = {
  * working without it. Full account access — keep it in .env, never in the repo.
  */
 let cachedUserToken: string | null = null;
+
+/**
+ * The `x-device-id` the Plaud web app sends. It is STABLE per browser session,
+ * and a session token may well be bound to it — so a fresh random id on every
+ * request is a good way to look like a different device each time. Configurable
+ * via PLAUD_DEVICE_ID; otherwise one value is generated per process, never per
+ * request.
+ */
+let deviceId: string | null = null;
+
+export function getDeviceId(): string {
+  if (deviceId) return deviceId;
+  const configured = (process.env.PLAUD_DEVICE_ID ?? "").trim();
+  deviceId = configured || randomBytes(8).toString("hex");
+  return deviceId;
+}
 
 export function requireUserToken(): string {
   if (cachedUserToken) return cachedUserToken;

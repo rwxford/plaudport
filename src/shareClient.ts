@@ -1,4 +1,4 @@
-import { config, isAllowedHost } from "./config.js";
+import { config, getDeviceId, isAllowedHost } from "./config.js";
 import type { ShareRef } from "./shareUrl.js";
 import { randomBytes } from "node:crypto";
 
@@ -99,7 +99,7 @@ function shareHeaders(): Record<string, string> {
     referer: `${WEB_APP_ORIGIN}/`,
     timezone,
     "user-agent": BROWSER_UA,
-    "x-device-id": randomBytes(8).toString("hex"),
+    "x-device-id": getDeviceId(),
     "x-request-id": randomBytes(6).toString("hex"),
   };
 }

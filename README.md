@@ -105,6 +105,7 @@ All settings come from the environment; `.env.example` is the template.
 | `PLAUD_API_BASE` | yes | — | Origin + path prefix of the Plaud web API |
 | `PLAUD_TOKEN` | yes | — | Bearer token from web.plaud.ai (**secret**) |
 | `PLAUD_USER_TOKEN` | for upload | — | `x-pld-user` header from a signed-in session (**secret**) |
+| `PLAUD_DEVICE_ID` | for upload | generated | `x-device-id` from that same session; Plaud may bind the session to it |
 | `PLAUD_EXTRA_HEADERS` | no | — | JSON of extra headers, if your account needs them |
 | `PLAUD_ALLOWED_HOSTS` | no | Plaud web/api/resource + both S3 buckets | SSRF guard for every outbound call |
 | `PLAUD_DATA_DIR` | no | `./data` | Where backups, ledger, and reports are written (gitignored) |
@@ -121,6 +122,7 @@ freshness); they're listed and commented out at the bottom of `.env.example`.
 | `npm run fetch:share -- "<link>"` | **Archive a shared meeting**: audio + transcript + notes |
 | `npm run probe:share -- "<link>"` | Report what a public share link exposes |
 | `npm run import:audio -- --from-share <dir>` | **Upload** an archived recording into your workspace |
+| `npm run check:auth` | Check your upload credentials without uploading anything |
 | `npm run fetch:audio -- --from-scan` | Download audio found by `scan:har` (fallback route) |
 | `npm run scan:har -- <file.har>` | Derive the endpoint map from a DevTools HAR export |
 | `npm run scan:upload -- <file.har>` | Work out how the web app uploads audio (for the import step) |
