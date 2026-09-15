@@ -187,9 +187,11 @@ function main() {
     const body = describeBody(e);
     const status = e.response?.status ?? null;
     const shape = responseShape(e);
+    // ALL header names, not a curated subset: the credential may be one we did
+    // not think to look for (a cookie, say), and a name is not a secret.
     const customHeaders = (e.request?.headers ?? [])
       .map((h) => h.name.toLowerCase())
-      .filter((n) => n.startsWith("x-") || n === "content-type" || n === "authorization");
+      .filter((n) => !n.startsWith(":") && !["accept", "accept-encoding", "accept-language", "user-agent", "referer", "origin", "priority"].includes(n) && !n.startsWith("sec-"));
 
     console.log(`[${i}] ${method} ${url.host}${templatePath(url.pathname)}`);
     console.log(`     status ${status ?? "?"}  |  body: ${body.kind}${body.detail ? ` (${body.detail})` : ""}`);

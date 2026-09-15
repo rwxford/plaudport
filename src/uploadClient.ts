@@ -76,7 +76,11 @@ async function withNetworkErrors(host: string, run: () => Promise<Response>): Pr
 }
 
 function apiHeaders(token: string, extra: Record<string, string> = {}): Record<string, string> {
+  // Plaud may authenticate by cookie rather than (or as well as) x-pld-user.
+  // Optional, so nothing breaks if the header alone turns out to be enough.
+  const cookie = (process.env.PLAUD_COOKIE ?? "").trim();
   return {
+    ...(cookie ? { cookie } : {}),
     accept: "application/json, text/plain, */*",
     "accept-language": "en-US,en;q=0.9",
     "app-language": "en",
