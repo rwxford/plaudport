@@ -11,7 +11,7 @@ import {
   utcOffsetHours,
   type UploadedPart,
 } from "./uploadClient.js";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 
@@ -122,9 +122,19 @@ async function main() {
   }
 
   try {
-    const session = await fetchSession();
-    if (!session?.session_id) {
-      throw new UploadError("Plaud did not return a session id.", "Your PLAUD_USER_TOKEN may be expired.");
+    // /file/welcome behaves unlike the rest of the API — in a captured browser
+    // session it carried no x-pld-user at all. Its only contribution is a
+    // session id, so a failure here must not block the upload: fall back to a
+    // generated one and let the endpoints that matter decide.
+    let sessionId: string;
+    try {
+      const session = await fetchSession();
+      sessionId = session?.session_id ?? randomUUID();
+      if (!session?.session_id) console.log("  (no session id returned; using a generated one)");
+    } catch (e) {
+      console.log(`  (couldn't read a session id: ${e instanceof UploadError ? e.message.split("\n")[0] : String(e)})`);
+      console.log("  Continuing with a generated one — the upload endpoints are the real test.");
+      sessionId = randomUUID();
     }
 
     const target = await requestUpload(bytes);
@@ -151,7 +161,7 @@ async function main() {
       objectName: target.objectName,
       filename: title,
       startTime,
-      sessionId: session.session_id,
+      sessionId,
     });
 
     console.log(`\n  Imported. Plaud file id: ${created.id ?? "(not returned)"}`);

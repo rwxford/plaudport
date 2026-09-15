@@ -49,6 +49,15 @@ const WEB_APP_ORIGIN = "https://web.plaud.ai";
 const BROWSER_UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36";
 
+/** The `timezone` HEADER is an IANA name; the confirm_upload FIELD is an offset. */
+export function ianaTimezone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
+}
+
 /** UTC offset in hours, the way confirm_upload wants it (e.g. -4), not an IANA name. */
 export function utcOffsetHours(date = new Date()): number {
   return -date.getTimezoneOffset() / 60;
@@ -86,6 +95,7 @@ function apiHeaders(token: string, extra: Record<string, string> = {}): Record<s
     "app-language": "en",
     "app-platform": "web",
     "edit-from": "web",
+    timezone: ianaTimezone(),
     origin: WEB_APP_ORIGIN,
     referer: `${WEB_APP_ORIGIN}/`,
     "user-agent": BROWSER_UA,
