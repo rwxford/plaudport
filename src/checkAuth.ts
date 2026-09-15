@@ -28,6 +28,7 @@ async function main() {
   console.log("\nCredentials as this tool loaded them:\n");
   console.log(`  PLAUD_USER_TOKEN  ${fingerprint(token)}`);
   console.log(`  PLAUD_DEVICE_ID   ${process.env.PLAUD_DEVICE_ID ? fingerprint(process.env.PLAUD_DEVICE_ID.trim()) : `(not set — using ${getDeviceId()})`}`);
+  console.log(`  PLAUD_AUTH        ${process.env.PLAUD_AUTH ? fingerprint(process.env.PLAUD_AUTH.trim()) : "(not set)"}`);
   console.log(`  PLAUD_COOKIE      ${process.env.PLAUD_COOKIE ? "set" : "(not set)"}`);
 
   if (rawToken !== token) {
@@ -49,8 +50,10 @@ async function main() {
       console.error(`Not working yet: ${e.message}`);
       if (e.hint) console.error(e.hint);
       console.error("\nIf the fingerprint above matches DevTools exactly, the token is not the problem.");
-      console.error("The next thing to try is PLAUD_DEVICE_ID: copy the x-device-id from the same");
-      console.error("request, since Plaud may tie a session to the device it was issued to.");
+      console.error("Check a real api.plaud.ai/file/ request in DevTools > Request Headers for an");
+      console.error("`authorization` or `cookie` header. Chrome's sanitized HAR export removes both,");
+      console.error("so a capture can look credential-free when it was not. If one is there, set");
+      console.error("PLAUD_AUTH or PLAUD_COOKIE in .env and run this again.");
       process.exit(1);
     }
     throw e;

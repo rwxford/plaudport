@@ -4,6 +4,12 @@ Recorded from a real import on **2026-09-15**. Unofficial and undocumented.
 
 No values from the observed session appear here — endpoint shapes only.
 
+> **Caveat on everything below.** It was derived from a HAR export, and Chrome's
+> "Export HAR (sanitized)" strips `Authorization` and `Cookie` headers. A capture
+> can therefore look credential-free when it was not. `x-pld-user` alone has not
+> yet authenticated a request from this tool, so treat the claim below as
+> unconfirmed until a live call succeeds.
+
 ## Authentication: `x-pld-user`
 
 The write endpoints are authenticated by an **`x-pld-user`** header, not an

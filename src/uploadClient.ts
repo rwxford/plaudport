@@ -85,11 +85,15 @@ async function withNetworkErrors(host: string, run: () => Promise<Response>): Pr
 }
 
 function apiHeaders(token: string, extra: Record<string, string> = {}): Record<string, string> {
-  // Plaud may authenticate by cookie rather than (or as well as) x-pld-user.
-  // Optional, so nothing breaks if the header alone turns out to be enough.
+  // Chrome's "Export HAR (sanitized)" strips Authorization and Cookie, so a
+  // capture can look credential-free when it was not. Both are supported and
+  // sent when set; x-pld-user alone may not be what authenticates these calls.
   const cookie = (process.env.PLAUD_COOKIE ?? "").trim();
+  const auth = (process.env.PLAUD_AUTH ?? "").trim();
   return {
     ...(cookie ? { cookie } : {}),
+    // Accepts a bare token or a full "Bearer x" value — people copy both.
+    ...(auth ? { authorization: /^bearer /i.test(auth) ? auth : `Bearer ${auth}` } : {}),
     accept: "application/json, text/plain, */*",
     "accept-language": "en-US,en;q=0.9",
     "app-language": "en",

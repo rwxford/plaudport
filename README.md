@@ -105,7 +105,9 @@ All settings come from the environment; `.env.example` is the template.
 | `PLAUD_API_BASE` | yes | — | Origin + path prefix of the Plaud web API |
 | `PLAUD_TOKEN` | yes | — | Bearer token from web.plaud.ai (**secret**) |
 | `PLAUD_USER_TOKEN` | for upload | — | `x-pld-user` header from a signed-in session (**secret**) |
-| `PLAUD_DEVICE_ID` | for upload | generated | `x-device-id` from that same session; Plaud may bind the session to it |
+| `PLAUD_DEVICE_ID` | for upload | generated | `x-device-id` from that same session |
+| `PLAUD_AUTH` | maybe | — | `Authorization` header, if Plaud sends one (**secret**) |
+| `PLAUD_COOKIE` | maybe | — | `Cookie` header, if Plaud authenticates by cookie (**secret**) |
 | `PLAUD_EXTRA_HEADERS` | no | — | JSON of extra headers, if your account needs them |
 | `PLAUD_ALLOWED_HOSTS` | no | Plaud web/api/resource + both S3 buckets | SSRF guard for every outbound call |
 | `PLAUD_DATA_DIR` | no | `./data` | Where backups, ledger, and reports are written (gitignored) |
