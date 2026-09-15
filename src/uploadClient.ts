@@ -14,8 +14,37 @@ import { randomBytes, randomUUID } from "node:crypto";
  * Authenticated by the `x-pld-user` header, not a bearer token.
  */
 
-/** S3 multipart minimum; the observed 9.3 MB upload split into exactly 2 parts. */
+/**
+ * S3's multipart minimum, and the size Plaud's web app uses. Every part except
+ * the last MUST be at least this big: S3 rejects the reassembly otherwise, which
+ * surfaces from Plaud as a bare "internal error" on merge_multipart.
+ *
+ * Splitting a file into N equal chunks is the intuitive approach and is WRONG
+ * for exactly this reason — 9.3 MB in two equal halves is two 4.6 MB parts, both
+ * under the minimum.
+ */
 export const PART_SIZE = 5 * 1024 * 1024;
+
+export interface PartRange {
+  start: number;
+  end: number;
+  partNumber: number;
+}
+
+/**
+ * Byte ranges for a multipart upload: PART_SIZE each, remainder last.
+ * `partCount` is what Plaud asked for; a mismatch means our idea of the part
+ * size is out of date, so the caller is told rather than quietly guessing.
+ */
+export function planParts(totalBytes: number, partCount: number): PartRange[] {
+  const ranges: PartRange[] = [];
+  for (let i = 0; i < partCount; i++) {
+    const start = i * PART_SIZE;
+    if (start >= totalBytes && i > 0) break;
+    ranges.push({ start, end: Math.min(start + PART_SIZE, totalBytes), partNumber: i + 1 });
+  }
+  return ranges;
+}
 
 export interface PresignedUpload {
   partUrls: string[];

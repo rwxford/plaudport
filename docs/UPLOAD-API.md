@@ -50,8 +50,14 @@ POST https://api.plaud.ai/file/get_upload_presigned_url
 ```
 
 `part_urls` is one presigned S3 URL per part. A 9.3 MB file produced **two**
-parts, so the part size is ~5 MB and the client decides nothing — the server
-hands back exactly as many URLs as it wants parts.
+parts: the part size is **5 MiB (5,242,880 bytes)**, and the server hands back
+exactly as many URLs as it wants parts.
+
+**The file must be split on 5 MiB boundaries — not into equal chunks.** S3
+requires every part except the last to be at least 5 MiB, so splitting 9.3 MB
+into two equal 4.6 MB halves produces parts S3 will not reassemble. Plaud
+surfaces that as `merge_multipart` returning `status 500: internal error`, which
+says nothing about the real cause.
 
 ### 2. Send the bytes
 

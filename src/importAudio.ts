@@ -5,6 +5,7 @@ import {
   fetchSession,
   mergeParts,
   PART_SIZE,
+  planParts,
   requestUpload,
   uploadPart,
   UploadError,
@@ -145,12 +146,19 @@ async function main() {
 
     const file = readFileSync(audioPath);
     const parts: UploadedPart[] = [];
-    const chunkSize = Math.ceil(file.length / target.partUrls.length);
+    const ranges = planParts(file.length, target.partUrls.length);
+
+    if (ranges.length !== target.partUrls.length) {
+      throw new UploadError(
+        `Plaud asked for ${target.partUrls.length} parts but ${(bytes / 1_048_576).toFixed(1)} MB splits into ${ranges.length} at ${PART_SIZE / 1_048_576} MiB each.`,
+        "Plaud's part size has probably changed; PART_SIZE in src/uploadClient.ts needs updating.",
+      );
+    }
 
     for (const [i, url] of target.partUrls.entries()) {
-      const chunk = file.subarray(i * chunkSize, Math.min((i + 1) * chunkSize, file.length));
-      process.stdout.write(`\r  Uploading part ${i + 1} of ${target.partUrls.length}…`);
-      parts.push(await uploadPart(url, i + 1, chunk));
+      const range = ranges[i]!;
+      process.stdout.write(`\r  Uploading part ${range.partNumber} of ${ranges.length}…`);
+      parts.push(await uploadPart(url, range.partNumber, file.subarray(range.start, range.end)));
     }
     process.stdout.write("\r");
 

@@ -275,6 +275,12 @@ async function main() {
     "bytes reassembled from the uploaded parts match the original file",
   );
   check(Array.isArray(mergeBody?.parts) && mergeBody.parts.every((p) => p.Etag && p.PartNumber), "merge sent Etag + PartNumber per part");
+  {
+    // S3 refuses to reassemble when any part but the last is under 5 MiB.
+    const sizes = [...uploaded.entries()].sort((a, b) => a[0] - b[0]).map(([, b]) => b.length);
+    const oversized = sizes.slice(0, -1).every((n) => n >= 5 * 1024 * 1024);
+    check(sizes.length === 1 || oversized, "every part but the last is at least 5 MiB");
+  }
   check(confirmBody?.scene === 101 && confirmBody?.is_tmp === 0 && confirmBody?.file_type === "MP3", "confirm_upload sent the constants Plaud expects");
   check(!/\.(mp3|wav)$/i.test(confirmBody?.filename ?? ""), "filename sent without its extension");
   check(confirmBody?.start_time === Date.parse("2026-09-14T16:18:35.000Z"), "kept the ORIGINAL recording date, not the upload time");
