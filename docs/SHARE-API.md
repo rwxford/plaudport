@@ -6,15 +6,34 @@ so a change is a one-file fix.
 
 No content from the observed recording appears here — field names and shapes only.
 
-## Authentication: none
+## Authentication: none — but the request must look like the web app
 
 A share link is its own authorisation. There is no bearer token, no cookie, no
 login. The `<id>::<token>` pair in the URL is the credential — **treat a share
 link like a password for that one recording**.
 
-The web app sends `x-device-id` (a client-generated hex string) and
-`x-request-id` on each call. Nothing is authenticated by them; we send plausible
-values for consistency with the app.
+**However, the API rejects requests that don't look like they came from the web
+app.** A minimal request with a valid link returns **403**. The working request
+carries all of:
+
+```
+accept: application/json, text/plain, */*
+accept-language: en-US,en;q=0.9
+app-language: en
+app-platform: web
+edit-from: web
+origin: https://web.plaud.ai
+referer: https://web.plaud.ai/
+timezone: <IANA zone, e.g. America/New_York>
+user-agent: <a real browser UA>
+x-device-id: <client-generated hex>
+x-request-id: <client-generated>
+```
+
+`x-device-id` and `x-request-id` are values the client invents; nothing is
+authenticated by them. The gate is on *shape*, not identity — which also means a
+403 is ambiguous: either the link was revoked, or Plaud changed what it expects.
+`src/shareClient.ts` says both in its error, and prints the server's own message.
 
 ## Endpoints
 

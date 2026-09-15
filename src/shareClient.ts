@@ -70,12 +70,35 @@ export class ShareApiError extends Error {
 }
 
 /**
- * The web app sends these on every call. x-device-id is just a stable-ish
- * identifier the client makes up; nothing is authenticated by it.
+ * The headers Plaud's web app sends on every share call, recorded from a working
+ * request (docs/SHARE-API.md).
+ *
+ * These are not optional: a request without `origin`/`referer`/`user-agent` gets
+ * a 403, even though the endpoint needs no authentication. The API is gated on
+ * looking like the web app, not on who you are. x-device-id and x-request-id are
+ * values the client makes up; nothing is authenticated by them.
  */
+const WEB_APP_ORIGIN = "https://web.plaud.ai";
+const BROWSER_UA =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36";
+
 function shareHeaders(): Record<string, string> {
+  let timezone = "UTC";
+  try {
+    timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    /* keep UTC */
+  }
   return {
-    Accept: "application/json",
+    accept: "application/json, text/plain, */*",
+    "accept-language": "en-US,en;q=0.9",
+    "app-language": "en",
+    "app-platform": "web",
+    "edit-from": "web",
+    origin: WEB_APP_ORIGIN,
+    referer: `${WEB_APP_ORIGIN}/`,
+    timezone,
+    "user-agent": BROWSER_UA,
     "x-device-id": randomBytes(8).toString("hex"),
     "x-request-id": randomBytes(6).toString("hex"),
   };
@@ -88,13 +111,19 @@ async function getJson<T>(url: string): Promise<T> {
   const res = await fetch(url, { headers: shareHeaders(), signal: AbortSignal.timeout(config.requestTimeoutMs) });
 
   if (!res.ok) {
+    // The body usually says which of the two it is, so show a little of it.
+    const body = (await res.text().catch(() => "")).trim().replace(/\s+/g, " ").slice(0, 200);
     const hint =
-      res.status === 404 || res.status === 403
-        ? "The share may have been revoked, or the link truncated. Open it in a browser to check."
-        : res.status >= 500
-          ? "Plaud is having trouble; try again shortly."
-          : undefined;
-    throw new ShareApiError(`HTTP ${res.status} from ${host}`, hint);
+      res.status === 403
+        ? "Two things cause a 403 here: the link was revoked, or Plaud rejected the shape of our request.\n" +
+          "If the link still opens in a browser, it is the latter — Plaud changed what it expects, and\n" +
+          "src/shareClient.ts needs its headers updated from a fresh browser capture (docs/SHARE-API.md)."
+        : res.status === 404
+          ? "The share was deleted, or the id is wrong. Open the link in a browser to check."
+          : res.status >= 500
+            ? "Plaud is having trouble; try again shortly."
+            : undefined;
+    throw new ShareApiError(`HTTP ${res.status} from ${host}${body ? `\nResponse: ${body}` : ""}`, hint);
   }
 
   let body: unknown;
