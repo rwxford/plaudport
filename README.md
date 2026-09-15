@@ -17,11 +17,13 @@ Runs entirely on your own machine. Nothing is hosted, and no data goes anywhere
 except between your Mac and Plaud.
 
 ## Status
-**Share import:** working end to end against the real API, minus the upload.
-One command retrieves a shared meeting's audio, transcript, outline and summary —
-no login, no token, no HAR capture. Still unproven: writing it back into a Plaud
-workspace, so the mp3 is imported by hand for now. `docs/CAPTURE-UPLOAD.md` is
-the plan for closing that gap.
+**Share import:** both halves built. Fetching a share needs no credentials at
+all; uploading into your own workspace needs `PLAUD_USER_TOKEN`. The upload path
+is written from a real captured import and passes an end-to-end self-test against
+a stand-in API — but has not yet run against live Plaud.
+
+Not yet possible: attaching the original transcript to the uploaded copy, so
+Plaud re-transcribes it. The original is preserved locally regardless.
 
 **Migration:** a **read-only spike** for Plaud's unofficial web API.
 
@@ -76,8 +78,16 @@ own authorisation (see `docs/SHARE-API.md`). One command pulls down:
 Everything lands in `data/shares/<share-id>-<title>/`. Re-running is safe: if the
 audio is already there and its checksum matches, it isn't downloaded again.
 
-Then import `audio.mp3` into Plaud by hand (Plaud Web → Personal → import audio).
-Automating that last step is the one thing still unproven.
+Then import it into your own Plaud workspace, keeping the meeting's original
+title and date:
+
+```bash
+npm run import:audio -- --from-share data/shares/<folder>
+```
+
+That step needs `PLAUD_USER_TOKEN` in `.env` (the `x-pld-user` header from a
+signed-in session — see `docs/UPLOAD-API.md`). Add `--dry-run` to see exactly
+what it would send first.
 
 For the migration spike (needs your own token):
 
@@ -94,8 +104,9 @@ All settings come from the environment; `.env.example` is the template.
 |---|---|---|---|
 | `PLAUD_API_BASE` | yes | — | Origin + path prefix of the Plaud web API |
 | `PLAUD_TOKEN` | yes | — | Bearer token from web.plaud.ai (**secret**) |
+| `PLAUD_USER_TOKEN` | for upload | — | `x-pld-user` header from a signed-in session (**secret**) |
 | `PLAUD_EXTRA_HEADERS` | no | — | JSON of extra headers, if your account needs them |
-| `PLAUD_ALLOWED_HOSTS` | no | `web.plaud.ai,api.plaud.ai` | SSRF guard; `PLAUD_API_BASE` must match |
+| `PLAUD_ALLOWED_HOSTS` | no | Plaud web/api/resource + both S3 buckets | SSRF guard for every outbound call |
 | `PLAUD_DATA_DIR` | no | `./data` | Where backups, ledger, and reports are written (gitignored) |
 | `PLAUD_REQUEST_TIMEOUT_MS` | no | `30000` | Per-request timeout |
 | `PLAUD_REDACT_SAMPLES` | no | `true` | Strip string values out of report samples |
@@ -109,6 +120,7 @@ freshness); they're listed and commented out at the bottom of `.env.example`.
 |---|---|
 | `npm run fetch:share -- "<link>"` | **Archive a shared meeting**: audio + transcript + notes |
 | `npm run probe:share -- "<link>"` | Report what a public share link exposes |
+| `npm run import:audio -- --from-share <dir>` | **Upload** an archived recording into your workspace |
 | `npm run fetch:audio -- --from-scan` | Download audio found by `scan:har` (fallback route) |
 | `npm run scan:har -- <file.har>` | Derive the endpoint map from a DevTools HAR export |
 | `npm run scan:upload -- <file.har>` | Work out how the web app uploads audio (for the import step) |
@@ -120,14 +132,14 @@ freshness); they're listed and commented out at the bottom of `.env.example`.
 | `npm run hooks:install` | Installs the secret check as a pre-commit hook |
 
 ## Roadmap
-- Share import: `docs/PRD-SHARE-IMPORT.md` §9. Done through **S1b** — audio,
-  transcript, outline and notes all archived locally. Next: attempt the upload
-  into Personal.
-- Migration: `docs/PRD.md` §9. Gate is **M0** (validate import + derived-data write).
+- Share import: `docs/PRD-SHARE-IMPORT.md` §9. Done through **S2** — fetch,
+  archive and upload. Next: run the upload against live Plaud, then a local web
+  UI so a link can be pasted rather than typed into a terminal.
+- Migration: `docs/PRD.md` §9. The upload flow discovered here is the same one
+  M0 needed, so that gate is now answerable.
 
-Both hit the same unproven step — writing into a Plaud workspace. Per decision
-O1, if that isn't possible via the API, we pause and reassess rather than
-reaching for browser automation.
+Still open on both: attaching an original transcript to an uploaded recording.
+No endpoint for it has been observed.
 
 ## Testing
 `npm run demo` proves the whole pipeline on your own machine in 30 seconds,

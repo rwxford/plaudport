@@ -117,11 +117,14 @@ different links still dedupes.
   directly: audio, both transcripts, outline, notes, metadata, an integrity
   manifest and a readable markdown archive. Idempotent. **This satisfies the
   fallback in full** — hand-import the mp3 and nothing is lost.
-- **S2 — Import.** Upload the audio into Personal. Needs the upload flow, which
-  `scan:upload` + `docs/CAPTURE-UPLOAD.md` exist to discover. Shared with
-  `PRD.md` M0. **Unproven — the only thing left.**
-- **S3 — Attach + verify.** Original transcript onto the item, confirmed through
-  the official Plaud MCP.
+- **S2 — Import.** ✅ built: `import:audio` runs Plaud's four-step upload
+  (presign → PUT parts → merge → confirm), keeping the original title and
+  recording date. Passes an end-to-end self-test against a stand-in API;
+  **not yet run against live Plaud.**
+- **S3 — Attach + verify.** Verification via the official Plaud MCP is available
+  now. Attaching the original transcript remains unproven — no observed endpoint
+  writes one. If none exists, Plaud re-transcribes and the original stays in the
+  local archive (acceptable: FR11c always kept the original authoritative).
 - **S4 — Local web UI.** Paste a link, click Import, watch progress (D4).
 - **S5 — HLS support (conditional).** Only if the audio turns out to be segmented;
   needs ffmpeg. Skipped otherwise.

@@ -112,6 +112,10 @@ async function main() {
 
   let audioLinkRequests = 0;
   let port = 0;
+  // Stand-in for the upload flow (docs/UPLOAD-API.md).
+  const uploaded = new Map();
+  let confirmBody = null;
+  let mergeBody = null;
   const server = createServer((req, res) => {
     const url = req.url ?? "";
     if (url.startsWith("/media/recording.wav")) {
@@ -124,6 +128,48 @@ async function main() {
     } else if (url.includes("/share/access/")) {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify(detail));
+    } else if (url.startsWith("/upload/part")) {
+      const partNumber = new URL(url, "http://x").searchParams.get("partNumber");
+      const chunks = [];
+      req.on("data", (d) => chunks.push(d));
+      req.on("end", () => {
+        const body = Buffer.concat(chunks);
+        uploaded.set(Number(partNumber), body);
+        res.writeHead(200, { etag: `"${createHash("md5").update(body).digest("hex")}"` });
+        res.end();
+      });
+    } else if (req.method === "POST") {
+      const chunks = [];
+      req.on("data", (d) => chunks.push(d));
+      req.on("end", () => {
+        const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : {};
+        res.writeHead(200, { "content-type": "application/json" });
+        if (url.endsWith("/file/welcome")) {
+          res.end(JSON.stringify({ status: 0, data: { session_id: "demo-session-0000", workspace_id: "ws_demo" } }));
+        } else if (url.endsWith("/file/get_upload_presigned_url")) {
+          const parts = Math.max(1, Math.ceil(body.filesize / (5 * 1024 * 1024)));
+          res.end(JSON.stringify({
+            status: 0,
+            data: {
+              part_urls: Array.from({ length: parts }, (_, i) => `http://127.0.0.1:${port}/upload/part?partNumber=${i + 1}`),
+              upload_id: "demo-upload-id",
+              object_name: "demo-object.mp3",
+            },
+          }));
+        } else if (url.endsWith("/file/merge_multipart")) {
+          mergeBody = body;
+          res.end(JSON.stringify({ status: 0, data: { object_name: body.object_name, upload_id: body.upload_id } }));
+        } else if (url.endsWith("/file/confirm_upload")) {
+          confirmBody = body;
+          const all = Buffer.concat([...uploaded.entries()].sort((a, b) => a[0] - b[0]).map(([, b]) => b));
+          res.end(JSON.stringify({
+            status: 0,
+            data: { id: "demo-file-id", workspace_id: "ws_demo", filesize: all.length, file_md5: createHash("md5").update(all).digest("hex") },
+          }));
+        } else {
+          res.end(JSON.stringify({ status: 0, data: {} }));
+        }
+      });
     } else {
       res.writeHead(404);
       res.end();
@@ -215,8 +261,30 @@ async function main() {
   check(/already archived/.test(again.out), "re-running skips the download instead of duplicating");
   check(audioLinkRequests === 1, "asked for the audio link exactly once across both runs");
 
-  // 6. guards
-  console.log("\nStep 4: checking the safety guards…");
+  // 6. upload the archived audio into a stand-in workspace
+  console.log("\nStep 4: importing the archived audio into a workspace…");
+  const importEnv = { ...shareEnv, PLAUD_USER_TOKEN: "demo-user-token-0000" };
+  const imported = await run(["src/importAudio.ts", "--from-share", shareDir], importEnv);
+  check(imported.code === 0, "import:audio ran");
+  check(/Plaud file id: demo-file-id/.test(imported.out), "created a file record");
+  check(/Checksum matches/.test(imported.out), "Plaud's copy checksums identical to ours");
+
+  const reassembled = Buffer.concat([...uploaded.entries()].sort((a, b) => a[0] - b[0]).map(([, b]) => b));
+  check(
+    createHash("sha256").update(reassembled).digest("hex") === expected,
+    "bytes reassembled from the uploaded parts match the original file",
+  );
+  check(Array.isArray(mergeBody?.parts) && mergeBody.parts.every((p) => p.Etag && p.PartNumber), "merge sent Etag + PartNumber per part");
+  check(confirmBody?.scene === 101 && confirmBody?.is_tmp === 0 && confirmBody?.file_type === "MP3", "confirm_upload sent the constants Plaud expects");
+  check(!/\.(mp3|wav)$/i.test(confirmBody?.filename ?? ""), "filename sent without its extension");
+  check(confirmBody?.start_time === Date.parse("2026-09-14T16:18:35.000Z"), "kept the ORIGINAL recording date, not the upload time");
+  check(typeof confirmBody?.timezone === "number", "timezone sent as a UTC offset number");
+
+  const finalManifest = JSON.parse(readFileSync(join(shareDir, "manifest.json"), "utf8"));
+  check(finalManifest.importedFileId === "demo-file-id", "recorded the new file id in the archive manifest");
+
+  // 7. guards
+  console.log("\nStep 5: checking the safety guards…");
   const badHost = await run(["src/fetchAudio.ts", `http://127.0.0.1:${port}/media/recording.wav`], {
     PLAUD_DATA_DIR: DEMO_DIR,
   });

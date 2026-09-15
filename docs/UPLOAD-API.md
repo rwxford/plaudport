@@ -58,7 +58,12 @@ POST https://api.plaud.ai/file/merge_multipart
 -> { status: 0, data: { object_name, upload_id } }
 ```
 
-`parts` carries the per-part identity (number + ETag) — exact shape **TBC**.
+```
+parts: [ { Etag: "<md5 hex, quotes stripped>", PartNumber: 1 }, ... ]
+```
+
+Note the capitalisation: `Etag` and `PartNumber`, not `ETag`/`part_number`.
+The ETag comes from each PUT's response header.
 
 ### 4. Create the file record
 
@@ -78,20 +83,37 @@ the handle for verifying the import afterwards through the official Plaud MCP.
 share can carry **its original title and recording date** rather than the date it
 was uploaded.
 
+### The confirm_upload constants
+
+| Field | Value | Note |
+|---|---|---|
+| `scene` | `101` | web import |
+| `is_tmp` | `0` | |
+| `support_mul_summ` | `true` | |
+| `file_type` | `"MP3"` | uppercase |
+| `filename` | title **without** extension | the web app sent `"audio"` for `audio.mp3` |
+| `start_time` | epoch ms | ours to choose — use the original recording time |
+| `timezone` | **number**, e.g. `-4` | a UTC offset, *not* the IANA string the share API's header wants |
+| `session_id` | from `POST /file/welcome` | |
+| `serial_number` | a UUID | 36 chars; nothing ties it to hardware |
+
+## Capturing your `x-pld-user`
+
+1. Sign in at web.plaud.ai, open DevTools → **Network**, click around until an
+   `api.plaud.ai` request appears.
+2. Click it → **Headers** → **Request Headers** → copy the `x-pld-user` value.
+3. Put it in `.env` as `PLAUD_USER_TOKEN=...`. `.env` is gitignored, and the
+   secret check refuses to commit it.
+
+Treat it like your password: it is full access to your account, it does not
+expire quickly, and it belongs in no paste, screenshot or issue.
+
 ## Still unknown
 
-- The exact shape of `parts` in step 3.
-- The values Plaud sends for `scene`, `is_tmp`, `support_mul_summ`, `file_type`,
-  `serial_number` — constants, but they have to match.
-- Whether `confirm_upload` accepts a transcript, or whether derived data needs a
-  separate call. Nothing in the observed capture wrote a transcript, because a
-  hand-import has none to write.
+Whether a transcript can be **attached** to the created file. Nothing in the
+observed capture wrote one, because a hand-import has no transcript to write.
+Finding out means capturing an edit of a transcript in the web app.
 
-`npm run scan:upload -- <har> --show-body` fills the first two in: it prints API
-request values with credential-shaped keys masked.
-
-## What this does not answer
-
-Whether a transcript can be **attached** to the created file. If it cannot, an
-imported recording gets re-transcribed by Plaud and the original transcript stays
-only in the local archive — which is why `fetch:share` saves it regardless.
+If it cannot be attached, an imported recording gets re-transcribed by Plaud and
+the original transcript stays only in the local archive — which is why
+`fetch:share` saves it regardless.

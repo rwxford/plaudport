@@ -21,7 +21,11 @@ const SettingsSchema = z.object({
     .optional()
     // resource.plaud.ai serves thumbnails; the S3 bucket is where share audio is
     // presigned from (observed 2026-09-14). Override via .env if Plaud moves.
-    .default("web.plaud.ai,api.plaud.ai,resource.plaud.ai,plaud-bucket.s3.us-west-2.amazonaws.com"),
+    .default(
+      "web.plaud.ai,api.plaud.ai,resource.plaud.ai," +
+        // share audio is served from one bucket host and uploaded to another
+        "plaud-bucket.s3.us-west-2.amazonaws.com,plaud-bucket.s3-accelerate.amazonaws.com",
+    ),
   PLAUD_SHARE_API_BASE: z.string().url().optional().default("https://api.plaud.ai"),
   PLAUD_DATA_DIR: z.string().optional().default("./data"),
   PLAUD_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().optional().default(30_000),
@@ -92,6 +96,28 @@ export const config = {
     regenerate: null as string | null, // POST — optional
   },
 } as const;
+
+/**
+ * The `x-pld-user` header value, which authenticates writes to your own Plaud
+ * workspace. Demanded only by code that uploads, so every read-only tool keeps
+ * working without it. Full account access — keep it in .env, never in the repo.
+ */
+let cachedUserToken: string | null = null;
+
+export function requireUserToken(): string {
+  if (cachedUserToken) return cachedUserToken;
+  const token = (process.env.PLAUD_USER_TOKEN ?? "").trim();
+  if (token.length < 10) {
+    console.error(
+      "PLAUD_USER_TOKEN is not set.\n" +
+        "It is the `x-pld-user` header the Plaud web app sends when you are signed in.\n" +
+        "See docs/UPLOAD-API.md for how to capture it, then put it in .env (which is gitignored).",
+    );
+    process.exit(1);
+  }
+  cachedUserToken = token;
+  return token;
+}
 
 const CredentialsSchema = z.object({
   PLAUD_API_BASE: z.string().url("Set PLAUD_API_BASE in .env (see docs/ENDPOINTS.md)"),

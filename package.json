@@ -13,6 +13,7 @@
     "probe:share": "tsx src/shareProbe.ts",
     "fetch:share": "tsx src/shareFetch.ts",
     "fetch:audio": "tsx src/fetchAudio.ts",
+    "import:audio": "tsx src/importAudio.ts",
     "test": "tsx --test src/*.test.ts",
     "demo": "node scripts/demo.mjs",
     "typecheck": "tsc --noEmit",
