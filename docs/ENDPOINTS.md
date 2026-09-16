@@ -8,8 +8,9 @@ capture the base URL, your token, and a few request shapes from your own session
 > it out of git: token → `.env`, findings → paths and shapes only. See `SECURITY.md`.
 
 ## 1. Get a bearer token + base URL
-1. Sign in at https://web.plaud.ai (if you use Google SSO, first set a password via
-   "Forgot Password").
+1. Sign in at https://web.plaud.ai however you normally do. (An earlier version of
+   this page said SSO users must first set a password — **that is wrong**: as of
+   2026-09 Plaud offers Google/Apple sign-in only, with no password to set.)
 2. Open Chrome DevTools → **Network** tab → filter **Fetch/XHR**.
 3. Click around: open the recordings list, open one recording's transcript.
 4. Pick any XHR request to the API host. Record:
@@ -60,7 +61,11 @@ shapes. **Delete the `.har` afterwards** — that file does contain your token.
 ## 3. Header/auth notes
 - Some deployments require extra headers (e.g. a workspace/tenant id). Capture any
   custom `x-*` headers and add them in `src/plaudClient.ts` (`extraHeaders`).
-- Token lifetime is ~300 days; refresh flow (email+password) is out of scope for M0.
+- **Token lifetime is about a day, not ~300.** Measured 2026-09-15/16: a token
+  copied one afternoon was refused the next with `status -419: workspace token
+  expired`. `npm run check:auth` reads the JWT's own `exp` and tells you.
+  There is no email+password refresh flow to fall back on — see
+  `UPLOAD-API.md`, "Is there a refresh token?".
 
 ## 4. M0 exit criteria
 - Read probes succeed for both workspaces.

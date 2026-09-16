@@ -42,14 +42,14 @@ colleagues — without losing Claude's access to it along the way.
 - **MCP visibility (observed, 2026-08):** the Plaud MCP can reach *all* files in a Personal workspace *and* private files in a Team workspace — but **not** files placed in the shared "Team files" folder. An issue is open with Plaud.
   - Implication 1: migrating Personal → private-in-Team preserves Claude's access. This is the target state.
   - Implication 2: promoting a file to "Team files" currently *removes* it from Claude's reach, so that step stays manual and deliberate (N1), never automatic.
-- Auth: Google SSO users must first set a password on web.plaud.ai; session tokens are long-lived (~300 days) and refresh silently.
+- ~~Auth: Google SSO users must first set a password on web.plaud.ai; session tokens are long-lived (~300 days) and refresh silently.~~ **Both halves wrong — corrected 2026-09-16.** Sign-in is Google/Apple SSO only, with no password option in settings; and the bearer expires in **about a day**, not 300, after which writes return `-419: workspace token expired`. Renewal is a manual copy today (`npm run set:auth`).
 - The web API is **reverse-engineered/unofficial** and may change without notice.
 
 ## 4. Functional requirements
 
 ### Authentication
 - FR1. Primary: **manual bearer-token paste** captured from web.plaud.ai (MFA-agnostic).
-- FR2. Optional: **email+password** login with automatic token refresh (requires a password set on the SSO account).
+- FR2. ~~Optional: **email+password** login with automatic token refresh.~~ **Not available** (2026-09-16): the account is SSO-only and Plaud exposes no password login, so there is nothing to automate against. Unattended renewal now depends on finding a refresh token — open question, tracked in `UPLOAD-API.md`.
 - FR3. Detect Personal vs Team context; select source (Personal) and target (Team) per operation.
 
 ### Backup / Export (must run before migrate)

@@ -104,7 +104,7 @@ different links still dedupes.
 | # | Criterion | Status |
 |---|---|---|
 | 1 | `probe:share` reports what a link exposes without printing meeting content | ✅ |
-| 2 | One command lands the recording in Personal | ⚠️ two commands (`fetch:share`, `import:audio`), and the **audio only** — the original transcript is archived locally but not attached to the Plaud copy |
+| 2 | One command lands the recording in Personal | ✅ 2026-09-16 — `npm run import -- "<link>"` archives and uploads in one go, and takes a file of links or a mix just the same. Caveat unchanged: what lands is the **audio only**; the original transcript is archived locally but cannot be attached (see S3) |
 | 3 | The Plaud MCP finds that recording afterwards — verified, not assumed | ✅ 2026-09-16 |
 | 4 | Re-running the same link changes nothing and says so | ✅ both: `fetch:share` verifies by checksum and skips, `import:audio` refuses a second upload unless `--extra-copy` is passed |
 | 5 | A local backup of audio + transcript exists before anything is written to Plaud | ✅ |

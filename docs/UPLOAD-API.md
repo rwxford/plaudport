@@ -30,15 +30,50 @@ was on the clipboard.
 
 Fully automating it needs one of:
 
-1. **Plaud's own refresh call.** The web app must have one — capturing it means
-   recording a session across an expiry boundary, or watching for whichever
-   request returns a fresh token.
-2. **A login endpoint.** If `email + password` mints a token, the tool could
-   renew unattended. Plaud requires SSO users to set a password first, so this
-   may exist; no login flow has been captured.
+1. **Plaud's own refresh call.** One candidate endpoint is known by name:
+   `POST api.plaud.ai/auth/access-token-other-web`. Only its **CORS preflight**
+   has been captured so far, which carries neither request body nor response —
+   so whether it takes a long-lived refresh token, or re-presents a Google/Apple
+   SSO assertion, is still unknown. See "Is there a refresh token?" below.
+2. ~~**A login endpoint.**~~ **Ruled out (2026-09-16).** The account signs in
+   with Google/Apple SSO only, and Plaud's settings offer no way to add a
+   password. There is no `email + password` to trade for a token, so this route
+   does not exist for this account.
 3. **Reading the browser's own copy** out of Chrome's local storage. Possible on
    macOS, but it means a tool rummaging in a browser profile for a credential —
    a meaningful step up in intrusiveness for a daily convenience.
+
+### Is there a refresh token?
+
+Unknown, and worth settling before building anything. Two cheap checks, in order:
+
+1. **Look at where the web app keeps its credentials.** DevTools →
+   **Application** → **Storage** → **Local Storage** → `https://web.plaud.ai`.
+   A token the app can re-present after a reload has to survive a reload, so it
+   lives here, in Session Storage, or in a cookie. To list what is there without
+   exposing any of it, run this in the **Console** — it prints key *names* and
+   value *lengths* only, and is safe to paste back:
+
+   ```js
+   Object.keys(localStorage).map(k => `${k} (${localStorage[k].length})`).join('\n')
+   ```
+
+   A key named for a refresh token, or one holding a second JWT with a far-off
+   `exp`, answers the question immediately.
+
+2. **Capture the POST, not the preflight.** In the Network list,
+   `access-token-other-web` appears twice: `OPTIONS` (the preflight) and the
+   real `POST` directly beneath it. Right-click the **POST** → Copy → Copy as
+   cURL, then `npm run scan:curl`. Its request body field names say what the
+   endpoint consumes.
+
+   The catch: `scan:curl` describes the *request*. If the reply is what carries
+   a fresh bearer, read it in the Network panel's **Response** tab and report
+   only the **key names**, never the values.
+
+If neither turns up a refresh token, the honest conclusion is that unattended
+renewal needs a browser, and `npm run set:auth` — copy the header, run one
+command — is the right place to stop.
 
 **Lesson for the next capture:** always export with *"with sensitive data"*, and
 treat a capture with no auth headers as suspect rather than informative.
@@ -46,11 +81,12 @@ treat a capture with no auth headers as suspect rather than informative.
 
 ### The other headers
 
-The write endpoints are authenticated by an **`x-pld-user`** header, not an
-`Authorization: Bearer`. It appears on exactly the requests that touch the
-owner's data (`get_upload_presigned_url`, the S3 PUTs, `merge_multipart`,
-`confirm_upload`, `ai/label`) and is absent from the ones that don't
-(`user/language`, `share/*/get`, `team-app/workspaces/can-create`).
+**`x-pld-user`** accompanies the write endpoints but does not authenticate them
+— that is the bearer's job, per the correction above. It appears on exactly the
+requests that touch the owner's data (`get_upload_presigned_url`, the S3 PUTs,
+`merge_multipart`, `confirm_upload`, `ai/label`) and is absent from the ones
+that don't (`user/language`, `share/*/get`, `team-app/workspaces/can-create`),
+so it reads as *which* account, not *whether* you may.
 
 Treat it as a full-access credential: it belongs in `.env` or the macOS Keychain,
 never in the repo, never in a paste.
