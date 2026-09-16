@@ -1,5 +1,6 @@
 import { config, getDeviceId, isAllowedHost, requireUserToken } from "./config.js";
 import { unwrapValue } from "./env.js";
+import { readTokenExpiry } from "./jwt.js";
 import { randomBytes, randomUUID } from "node:crypto";
 
 /**
@@ -174,9 +175,34 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
 
   // Plaud reports failure in the body, not the HTTP status.
   if (typeof parsed.status === "number" && parsed.status !== 0) {
-    throw new UploadError(`${path} reported status ${parsed.status}: ${parsed.msg ?? parsed.message ?? "no message"}`);
+    const message = parsed.msg ?? parsed.message ?? "no message";
+    // -419 is Plaud's expired-session code; the bearer lasts roughly a day.
+    const hint =
+      parsed.status === -419 || /expired/i.test(message)
+        ? "Your PLAUD_AUTH has expired. Copy a fresh `authorization` value from DevTools into .env.\n" +
+          "Plaud's bearer token lasts about 24 hours. `npm run check:auth` shows the expiry before you upload."
+        : parsed.status === -3900
+          ? "The Authorization header is malformed — check for stray brackets or quotes around the value."
+          : undefined;
+    throw new UploadError(`${path} reported status ${parsed.status}: ${message}`, hint);
   }
   return parsed.data as T;
+}
+
+/**
+ * Fail before uploading anything if the bearer token is already expired.
+ * Discovering that after pushing 9 MB of parts wastes time and bandwidth, and
+ * the token says so itself.
+ */
+export function assertTokenUsable(): void {
+  const auth = unwrapValue(process.env.PLAUD_AUTH ?? "");
+  const expiry = auth ? readTokenExpiry(auth) : null;
+  if (expiry?.expired) {
+    throw new UploadError(
+      `PLAUD_AUTH expired ${expiry.relative} (${expiry.expiresAt.toISOString().replace("T", " ").slice(0, 16)} UTC).`,
+      "Copy a fresh `authorization` value from DevTools into .env. Plaud's lasts about 24 hours.",
+    );
+  }
 }
 
 /** Session context for the workspace. `session_id` is required by confirm_upload. */

@@ -1,5 +1,6 @@
 import { getDeviceId } from "./config.js";
 import { unwrapValue } from "./env.js";
+import { readTokenExpiry } from "./jwt.js";
 import { requestUpload, UploadError } from "./uploadClient.js";
 
 /**
@@ -53,6 +54,18 @@ async function main() {
   ] as const) {
     const warning = wrapperWarning(name, raw ?? "");
     if (warning) console.log(`\n  NOTE: ${warning} Stripped automatically, but worth fixing in .env.`);
+  }
+
+  const auth = unwrapValue(process.env.PLAUD_AUTH ?? "");
+  const expiry = auth ? readTokenExpiry(auth) : null;
+  if (expiry) {
+    console.log(
+      `\n  PLAUD_AUTH ${expiry.expired ? "EXPIRED" : "expires"} ${expiry.relative}` +
+        ` (${expiry.expiresAt.toISOString().replace("T", " ").slice(0, 16)} UTC)`,
+    );
+    if (expiry.expired) {
+      console.log("  Copy a fresh `authorization` value from DevTools — Plaud's lasts about a day.");
+    }
   }
 
   console.log("\nCompare the first/last characters and the length against DevTools:");

@@ -1,6 +1,7 @@
 import { config } from "./config.js";
 import { humanDuration } from "./format.js";
 import {
+  assertTokenUsable,
   confirmUpload,
   mergeParts,
   PART_SIZE,
@@ -122,6 +123,8 @@ async function main() {
   }
 
   try {
+    assertTokenUsable();
+
     // confirm_upload's session_id is an integer identifying a recording session
     // on a device. A web import has none, so 0. (/file/welcome returns a
     // UUID-shaped `session_id` — same name, different thing, not this.)

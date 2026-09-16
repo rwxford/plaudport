@@ -85,9 +85,10 @@ title and date:
 npm run import:audio -- --from-share data/shares/<folder>
 ```
 
-That step needs `PLAUD_USER_TOKEN` in `.env` (the `x-pld-user` header from a
-signed-in session — see `docs/UPLOAD-API.md`). Add `--dry-run` to see exactly
-what it would send first.
+That step needs credentials in `.env` — see `docs/UPLOAD-API.md` for how to
+capture them. **Plaud's bearer token expires after about a day**, so expect to
+re-copy `PLAUD_AUTH` periodically; `npm run check:auth` tells you when it expires
+before you upload anything. Add `--dry-run` to see what would be sent first.
 
 For the migration spike (needs your own token):
 

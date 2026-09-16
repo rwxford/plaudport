@@ -17,6 +17,17 @@ not authenticate them on its own — sending it alone returns
 `401 {"detail":"Not authenticated"}`, FastAPI's message for a security
 dependency (`HTTPBearer`) finding nothing it recognises.
 
+### The bearer expires in about a day
+
+Observed: a token copied one afternoon was rejected ~24 hours later with
+`status -419: workspace token expired`. It is a JWT, so its `exp` claim can be
+read locally without any network call — `npm run check:auth` prints the expiry,
+and `import:audio` refuses before uploading rather than after.
+
+Re-copying it by hand is the current answer. Plaud's web app must refresh it
+somehow; that flow has not been captured, and finding it means recording a
+session across an expiry boundary.
+
 **Lesson for the next capture:** always export with *"with sensitive data"*, and
 treat a capture with no auth headers as suspect rather than informative.
 `scan:upload` now says so when it sees one.
