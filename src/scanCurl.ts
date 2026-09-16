@@ -68,6 +68,13 @@ function main() {
 
   const url = new URL(parsed.url);
   console.log(`\n${parsed.method} ${url.host}${url.pathname}`);
+
+  if (parsed.method === "OPTIONS") {
+    console.log("\n  This is the CORS preflight, not the request itself — it carries no credentials");
+    console.log("  and no body. In the Network list the real request sits right below it, same");
+    console.log("  name, method POST or GET. Right-click THAT one and copy it instead.");
+    console.log("  (Right-click the column headers → Method, to see the method at a glance.)");
+  }
   if (url.search) console.log(`  query: ${[...url.searchParams.keys()].join(", ")}`);
 
   console.log("\nHeaders:");
