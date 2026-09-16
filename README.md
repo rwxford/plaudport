@@ -63,15 +63,26 @@ hook) fails the build if any of them get staged. See `SECURITY.md`.
 - For the migration side: a Plaud account with Personal + Team workspaces, and a
   bearer token captured from web.plaud.ai (see `docs/ENDPOINTS.md`)
 
-## Quick start — archive a shared meeting
+## Quick start
 
 ```bash
 npm install
-npm run fetch:share -- "https://web.plaud.ai/s/pub_xxxxxxxx::xxxxxxxx"
+npm run import -- "https://web.plaud.ai/s/pub_xxxxxxxx::xxxxxxxx"
 ```
 
-That's it. **No Plaud login, no token, no configuration** — a share link is its
-own authorisation (see `docs/SHARE-API.md`). One command pulls down:
+One command: archives the meeting locally, then uploads it into your Plaud
+Personal workspace keeping its **original title and recording date**. The same
+command takes a file of links, or any mix — see below.
+
+Uploading needs credentials in `.env` (`docs/UPLOAD-API.md`); archiving needs
+nothing at all, since a share link is its own authorisation. To archive without
+uploading, add `--fetch-only`:
+
+```bash
+npm run import -- "<link>" --fetch-only
+```
+
+Either way you get, under `data/shares/<share-id>-<title>/`:
 
 - `audio.mp3` — the recording, checksummed
 - `transcript.txt` — the original transcript, `[mm:ss] Speaker: text`
@@ -80,24 +91,14 @@ own authorisation (see `docs/SHARE-API.md`). One command pulls down:
   one readable document
 - `detail.json` + `manifest.json` — the raw response and an integrity record
 
-Everything lands in `data/shares/<share-id>-<title>/`. Re-running is safe: if the
-audio is already there and its checksum matches, it isn't downloaded again.
-
-Then import it into your own Plaud workspace, keeping the meeting's original
-title and date:
-
-```bash
-npm run import:audio -- --from-share data/shares/<folder>
-```
-
-That step needs credentials in `.env` — see `docs/UPLOAD-API.md` for how to
-capture them. Re-running it will **refuse to upload a second copy**; pass
-`--extra-copy` when you actually want one. `--dry-run` shows what would be sent.
+Re-running is safe: audio already archived is verified by checksum and not
+re-downloaded, and a recording already imported is not uploaded twice. Pass
+`--extra-copy` when a second copy is genuinely what you want.
 
 ## Several links at once
 
-This is the one you'll use most. Put the links in a file, one per line — `#`
-comments and blank lines are fine, so it doubles as a working list:
+The same `import` command. Put the links in a file, one per line — `#` comments
+and blank lines are fine, so it doubles as a working list:
 
 ```
 # AWS Federal AI Symposium, 09-15
@@ -106,9 +107,10 @@ https://web.plaud.ai/s/pub_bbbb…::tok
 ```
 
 ```bash
-npm run import:batch -- links.txt                # archive + import each
-npm run import:batch -- links.txt --fetch-only   # archive only, no upload
-npm run import:batch -- links.txt --extra-copy   # re-import ones already done
+npm run import -- links.txt                       # archive + import each
+npm run import -- links.txt "https://…" "https://…"   # any mix of files and links
+npm run import -- links.txt --fetch-only          # archive only, no upload
+npm run import -- links.txt --extra-copy          # re-import ones already done
 ```
 
 Each link is archived locally and then uploaded, keeping its original title and
@@ -163,10 +165,10 @@ freshness); they're listed and commented out at the bottom of `.env.example`.
 ## Scripts
 | Command | What it does |
 |---|---|
-| `npm run fetch:share -- "<link>"` | **Archive a shared meeting**: audio + transcript + notes |
 | `npm run probe:share -- "<link>"` | Report what a public share link exposes |
-| `npm run import:audio -- --from-share <dir>` | **Upload** an archived recording into your workspace |
-| `npm run import:batch -- <links.txt>` | **Archive + import a list of links** in one run |
+| `npm run import -- "<link>" \| <links.txt>` | **Archive + import.** One link, a file of them, or a mix |
+| `npm run import:audio -- --from-share <dir>` | Upload an already-archived recording (lower level) |
+| `npm run fetch:share -- "<link>"` | Archive only, without uploading (lower level) |
 | `npm run check:auth` | Check your upload credentials, and when they expire |
 | `npm run set:auth` | Update the expiring bearer token from the clipboard |
 | `npm run fetch:audio -- --from-scan` | Download audio found by `scan:har` (fallback route) |

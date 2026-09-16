@@ -10,14 +10,17 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 /**
- * Archive and import a list of share links in one run.
+ * Archive and import share links — one, several, or a file of them.
  *
- *   npm run import:batch -- links.txt
- *   npm run import:batch -- links.txt --fetch-only     # archive, don't upload
- *   npm run import:batch -- links.txt --extra-copy     # re-import ones already done
+ *   npm run import -- "https://web.plaud.ai/s/pub_…::tok"
+ *   npm run import -- links.txt
+ *   npm run import -- links.txt "https://…" "https://…"     # any mix
+ *   npm run import -- links.txt --fetch-only                # archive, don't upload
+ *   npm run import -- links.txt --extra-copy                # re-import ones already done
  *
- * The list is one link per line; blank lines and #-comments are ignored, so it
- * can be kept as a working file.
+ * One link and a hundred take the same command: there is no reason to remember
+ * two. A file argument is read as a list, one link per line, with blank lines
+ * and #-comments ignored so it can be kept as a working file.
  *
  * One bad link must not sink the run: each is tried, failures are recorded, and
  * the summary at the end says exactly which ones need attention. The credential
@@ -34,28 +37,46 @@ interface Outcome {
   detail?: string;
 }
 
+/** A bare argument is either a link to import or a file listing links. */
+function looksLikeLink(arg: string): boolean {
+  return /^https?:\/\//i.test(arg) || arg.includes("::");
+}
+
 async function main() {
-  const listPath = process.argv.slice(2).find((a) => !a.startsWith("--"));
+  const args = process.argv.slice(2).filter((a) => !a.startsWith("--"));
   const fetchOnly = process.argv.includes("--fetch-only");
   const extraCopy = process.argv.includes("--extra-copy") || process.argv.includes("--force");
 
-  if (!listPath) {
-    console.error("Usage: npm run import:batch -- <links.txt> [--fetch-only] [--extra-copy]");
-    console.error("\nThe file holds one share link per line. Blank lines and # comments are ignored.");
-    process.exit(1);
-  }
-  if (!existsSync(listPath)) {
-    console.error(`No such file: ${listPath}`);
-    process.exit(1);
-  }
-
-  const links = parseLinkList(readFileSync(listPath, "utf8"));
-  if (links.length === 0) {
-    console.error(`${listPath} has no links in it.`);
+  if (args.length === 0) {
+    console.error("Usage:");
+    console.error('  npm run import -- "<share link>"          one link');
+    console.error("  npm run import -- <links.txt>             a file of links, one per line");
+    console.error('  npm run import -- <links.txt> "<link>"    any mix of the two');
+    console.error("\nOptions: --fetch-only (archive without uploading), --extra-copy (import again)");
     process.exit(1);
   }
 
-  console.log(`\n${links.length} link${links.length === 1 ? "" : "s"} from ${listPath}`);
+  const links: string[] = [];
+  const sources: string[] = [];
+  for (const arg of args) {
+    if (looksLikeLink(arg)) {
+      links.push(arg);
+      continue;
+    }
+    if (!existsSync(arg)) {
+      console.error(`Not a share link, and no such file: ${arg}`);
+      process.exit(1);
+    }
+    const fromFile = parseLinkList(readFileSync(arg, "utf8"));
+    if (fromFile.length === 0) {
+      console.error(`${arg} has no links in it.`);
+      process.exit(1);
+    }
+    links.push(...fromFile);
+    sources.push(arg);
+  }
+
+  console.log(`\n${links.length} link${links.length === 1 ? "" : "s"}${sources.length ? ` from ${sources.join(", ")}` : ""}`);
   if (fetchOnly) console.log("Fetch only — nothing will be uploaded to Plaud.\n");
 
   // Fail before any work if the credential is already dead.
@@ -76,18 +97,18 @@ async function main() {
   const outcomes: Outcome[] = [];
 
   for (const [i, url] of links.entries()) {
-    const position = `[${i + 1}/${links.length}]`;
+    const position = links.length > 1 ? `[${i + 1}/${links.length}]` : "";
     let ref;
     try {
       ref = parseShareUrl(url);
     } catch (e) {
       const detail = e instanceof ShareUrlError ? e.message.split("\n")[0]! : String(e);
-      console.log(`${position} SKIP  not a share link — ${detail}`);
+      console.log(`${position ? `${position} ` : ""}SKIP  not a share link — ${detail}`);
       outcomes.push({ url, status: "failed", detail });
       continue;
     }
 
-    console.log(`\n${position} ${ref.shareId}`);
+    console.log(`\n${position ? `${position} ` : ""}${ref.shareId}`);
 
     try {
       const { dir, manifest, audioError } = await archiveShare(ref, { log: (l) => console.log(`   ${l.trim()}`) });
@@ -152,8 +173,10 @@ async function main() {
     failed: outcomes.filter((o) => o.status === "failed").length,
   };
 
-  console.log(`\n${"=".repeat(50)}`);
-  console.log(`Imported ${counts.imported}   Already there ${counts.already}   Archived only ${counts.archived}   Failed ${counts.failed}`);
+  if (links.length > 1) {
+    console.log(`\n${"=".repeat(50)}`);
+    console.log(`Imported ${counts.imported}   Already there ${counts.already}   Archived only ${counts.archived}   Failed ${counts.failed}`);
+  }
 
   if (counts.failed) {
     console.log("\nNeeds attention:");
@@ -162,11 +185,13 @@ async function main() {
     }
   }
 
-  const runsDir = join(config.dataDir, "runs");
-  mkdirSync(runsDir, { recursive: true });
-  const reportPath = join(runsDir, `batch-${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
-  writeFileSync(reportPath, JSON.stringify({ startedFrom: listPath, fetchOnly, outcomes }, null, 2));
-  console.log(`\nRun report: ${reportPath}`);
+  if (links.length > 1) {
+    const runsDir = join(config.dataDir, "runs");
+    mkdirSync(runsDir, { recursive: true });
+    const reportPath = join(runsDir, `batch-${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
+    writeFileSync(reportPath, JSON.stringify({ startedFrom: sources, fetchOnly, outcomes }, null, 2));
+    console.log(`\nRun report: ${reportPath}`);
+  }
 
   // Non-zero exit when something needs a human, so this can be scripted.
   if (counts.failed) process.exit(1);
