@@ -266,7 +266,7 @@ async function main() {
   const importEnv = { ...shareEnv, PLAUD_USER_TOKEN: "demo-user-token-0000" };
   const imported = await run(["src/importAudio.ts", "--from-share", shareDir], importEnv);
   check(imported.code === 0, "import:audio ran");
-  check(/Plaud file id: demo-file-id/.test(imported.out), "created a file record");
+  check(/Plaud file id: of_demo-file-id/.test(imported.out), "created a file record, reported with Plaud's of_ prefix");
   check(/Checksum matches/.test(imported.out), "Plaud's copy checksums identical to ours");
 
   const reassembled = Buffer.concat([...uploaded.entries()].sort((a, b) => a[0] - b[0]).map(([, b]) => b));
@@ -290,6 +290,14 @@ async function main() {
 
   const finalManifest = JSON.parse(readFileSync(join(shareDir, "manifest.json"), "utf8"));
   check(finalManifest.importedFileId === "demo-file-id", "recorded the new file id in the archive manifest");
+  check(finalManifest.importedFileIdPrefixed === "of_demo-file-id", "recorded the of_-prefixed form too");
+
+  // Re-importing must not upload a second copy unless asked for one.
+  const partsBefore = [...uploaded.values()].reduce((n, b) => n + b.length, 0);
+  const secondImport = await run(["src/importAudio.ts", "--from-share", shareDir], importEnv);
+  check(/Already imported/.test(secondImport.out), "a second import is refused");
+  const partsAfter = [...uploaded.values()].reduce((n, b) => n + b.length, 0);
+  check(partsAfter === partsBefore, "and uploaded nothing", `${partsBefore} -> ${partsAfter} bytes`);
 
   // 7. guards
   console.log("\nStep 5: checking the safety guards…");

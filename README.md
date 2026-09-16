@@ -132,12 +132,34 @@ All settings come from the environment; `.env.example` is the template.
 Later milestones add a few more (local UI bind/port, concurrency, backup
 freshness); they're listed and commented out at the bottom of `.env.example`.
 
+## A batch of links
+
+Put the links in a file, one per line — `#` comments and blank lines are fine,
+so it doubles as a working list:
+
+```
+# Monday's calls
+https://web.plaud.ai/s/pub_aaaa…::tok
+https://web.plaud.ai/s/pub_bbbb…::tok
+```
+
+```bash
+npm run import:batch -- links.txt                # archive + import each
+npm run import:batch -- links.txt --fetch-only   # archive only, no upload
+```
+
+Links already imported are skipped. One bad link doesn't sink the run — each is
+attempted, and the summary names the ones that need attention. The credential is
+checked once up front, so an expired token fails before anything uploads rather
+than halfway through. A JSON report of every run lands in `data/runs/`.
+
 ## Scripts
 | Command | What it does |
 |---|---|
 | `npm run fetch:share -- "<link>"` | **Archive a shared meeting**: audio + transcript + notes |
 | `npm run probe:share -- "<link>"` | Report what a public share link exposes |
 | `npm run import:audio -- --from-share <dir>` | **Upload** an archived recording into your workspace |
+| `npm run import:batch -- <links.txt>` | **Archive + import a list of links** in one run |
 | `npm run check:auth` | Check your upload credentials, and when they expire |
 | `npm run set:auth` | Update the expiring bearer token from the clipboard |
 | `npm run fetch:audio -- --from-scan` | Download audio found by `scan:har` (fallback route) |

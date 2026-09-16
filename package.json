@@ -14,6 +14,7 @@
     "fetch:share": "tsx src/shareFetch.ts",
     "fetch:audio": "tsx src/fetchAudio.ts",
     "import:audio": "tsx src/importAudio.ts",
+    "import:batch": "tsx src/importBatch.ts",
     "check:auth": "tsx src/checkAuth.ts",
     "set:auth": "tsx src/setAuth.ts",
     "test": "tsx --test src/*.test.ts",

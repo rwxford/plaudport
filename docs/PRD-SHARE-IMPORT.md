@@ -26,7 +26,7 @@ and therefore reachable by the Plaud MCP from Claude.
 | D0 | Source side is solved without credentials (2026-09-14); the open question is only whether Plaud accepts an upload. |
 | D1 | Target shape is a **real recording**: audio + transcript, not a text note. |
 | D2 | Links come from **other people's accounts**; a public link is all we get. No source-side login. |
-| D3 | **One link at a time**, on demand. No batch, no watcher, no inbox scraping — yet. |
+| D3 | ~~One link at a time~~ → **batch added 2026-09-16** (`import:batch` over a file of links). Still no watcher and no inbox scraping. |
 | D4 | **CLI first** to prove the mechanism, then wrap it in the local web UI. |
 
 ## 3. Scope
