@@ -104,7 +104,7 @@ different links still dedupes.
 | # | Criterion | Status |
 |---|---|---|
 | 1 | `probe:share` reports what a link exposes without printing meeting content | ✅ |
-| 2 | One command lands the recording in Personal | ✅ two commands (`fetch:share`, `import:audio`); a transcript comes from Plaud rather than being attached by us |
+| 2 | One command lands the recording in Personal | ⚠️ two commands (`fetch:share`, `import:audio`), and the **audio only** — the original transcript is archived locally but not attached to the Plaud copy |
 | 3 | The Plaud MCP finds that recording afterwards — verified, not assumed | ✅ 2026-09-16 |
 | 4 | Re-running the same link changes nothing and says so | ✅ for fetch; **import is not yet idempotent** — running it twice uploads twice |
 | 5 | A local backup of audio + transcript exists before anything is written to Plaud | ✅ |
@@ -129,13 +129,13 @@ refuse a second upload of the same audio. That is the next thing worth fixing.
   official MCP: the recording exists with the right title, dated 2026-09-14 as
   the meeting was, checksum matching the local copy.
 - **S3 — Attach + verify.** ✅ Verification via the official MCP works.
-  **Attaching the original transcript turned out to be largely moot:** Plaud
-  transcribes the uploaded copy itself, with speaker names, so the recording is
-  searchable in Plaud without us writing anything. The two transcripts differ,
-  and the share's original stays in the local archive — which is what FR11c
-  wanted anyway (the original remains authoritative).
-  Still unproven, and now lower value: whether a transcript *can* be written onto
-  a Plaud file.
+  **Attaching the original transcript is still open, and still worth doing.**
+  An imported recording arrives as audio only; transcription is owner-initiated
+  in Plaud and presumably costs plan minutes. Writing the share's own transcript
+  onto the imported file would save that step and preserve the original wording
+  rather than producing a second, different transcript of the same audio.
+  Unproven: whether any endpoint accepts a transcript for a file. Finding out
+  means capturing a transcript edit in the web app.
 - **S4 — Local web UI.** Paste a link, click Import, watch progress (D4).
 - **S5 — HLS support (conditional).** Only if the audio turns out to be segmented;
   needs ffmpeg. Skipped otherwise.

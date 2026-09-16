@@ -157,6 +157,9 @@ Whether a transcript can be **attached** to the created file. Nothing in the
 observed capture wrote one, because a hand-import has no transcript to write.
 Finding out means capturing an edit of a transcript in the web app.
 
+Confirmed by importing for real: an uploaded file has **no transcript** until the
+owner asks Plaud to produce one. Transcription is not automatic on import.
+
 If it cannot be attached, an imported recording gets re-transcribed by Plaud and
 the original transcript stays only in the local archive — which is why
 `fetch:share` saves it regardless.

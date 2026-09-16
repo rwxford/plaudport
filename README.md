@@ -24,10 +24,10 @@ Plaud's own MCP, independently of this tool: the recording exists, is dated when
 the meeting happened rather than when it was uploaded, and its checksum matches
 the local copy.
 
-Plaud transcribes the uploaded copy itself, with speaker names — so an imported
-recording ends up with a transcript without us writing one. The share's original
-transcript is archived locally either way, which matters because the two are not
-identical.
+An imported recording arrives as **audio only**. Transcription is something you
+ask Plaud for afterwards — it does not happen automatically, and it presumably
+draws on your plan's minutes. The share's original transcript is archived locally
+regardless, so nothing is lost either way, but it does not travel into Plaud.
 
 **Migration:** a **read-only spike** for Plaud's unofficial web API. The upload
 flow proven here is the same one its M0 gate needed.
