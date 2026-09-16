@@ -94,6 +94,34 @@ That step needs credentials in `.env` — see `docs/UPLOAD-API.md` for how to
 capture them. Re-running it will **refuse to upload a second copy**; pass
 `--extra-copy` when you actually want one. `--dry-run` shows what would be sent.
 
+## Several links at once
+
+This is the one you'll use most. Put the links in a file, one per line — `#`
+comments and blank lines are fine, so it doubles as a working list:
+
+```
+# AWS Federal AI Symposium, 09-15
+https://web.plaud.ai/s/pub_aaaa…::tok
+https://web.plaud.ai/s/pub_bbbb…::tok
+```
+
+```bash
+npm run import:batch -- links.txt                # archive + import each
+npm run import:batch -- links.txt --fetch-only   # archive only, no upload
+npm run import:batch -- links.txt --extra-copy   # re-import ones already done
+```
+
+Each link is archived locally and then uploaded, keeping its original title and
+recording date. Ten links takes one command and a few minutes.
+
+- **Already imported links are skipped**, so re-running is safe and cheap.
+- **One bad link doesn't sink the run** — every link is attempted, and the
+  summary at the end names the ones that need attention.
+- **The credential is checked once up front**, so an expired token stops the run
+  before anything uploads rather than on link 9 of 12. If it expires mid-run, the
+  run stops and says so; refresh with `npm run set:auth` and re-run.
+- A JSON report of every run lands in `data/runs/`.
+
 **Plaud's bearer token expires after about a day.** Refreshing it is two steps:
 copy the `authorization` value in DevTools, then
 
@@ -131,27 +159,6 @@ All settings come from the environment; `.env.example` is the template.
 
 Later milestones add a few more (local UI bind/port, concurrency, backup
 freshness); they're listed and commented out at the bottom of `.env.example`.
-
-## A batch of links
-
-Put the links in a file, one per line — `#` comments and blank lines are fine,
-so it doubles as a working list:
-
-```
-# Monday's calls
-https://web.plaud.ai/s/pub_aaaa…::tok
-https://web.plaud.ai/s/pub_bbbb…::tok
-```
-
-```bash
-npm run import:batch -- links.txt                # archive + import each
-npm run import:batch -- links.txt --fetch-only   # archive only, no upload
-```
-
-Links already imported are skipped. One bad link doesn't sink the run — each is
-attempted, and the summary names the ones that need attention. The credential is
-checked once up front, so an expired token fails before anything uploads rather
-than halfway through. A JSON report of every run lands in `data/runs/`.
 
 ## Scripts
 | Command | What it does |
