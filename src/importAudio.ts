@@ -105,6 +105,20 @@ function isOptionValue(value: string): boolean {
 async function main() {
   const { audioPath, title, startTime, shareDir } = resolveInput();
   const dryRun = process.argv.includes("--dry-run");
+  // --extra-copy is the deliberate "yes, upload it again" switch. --force is
+  // accepted as a synonym because that is what people reach for.
+  const extraCopy = process.argv.includes("--extra-copy") || process.argv.includes("--force");
+
+  if (shareDir && !extraCopy && !dryRun) {
+    const previous: ShareManifest = JSON.parse(readFileSync(join(shareDir, "manifest.json"), "utf8"));
+    if (previous.importedFileId) {
+      console.log(`\nAlready imported on ${previous.importedAt?.slice(0, 10) ?? "an earlier run"}.`);
+      console.log(`  Plaud file id: ${previous.importedFileIdPrefixed ?? `of_${previous.importedFileId}`}`);
+      console.log("\nNothing uploaded. To deliberately add a second copy:");
+      console.log(`  npm run import:audio -- --from-share ${shareDir} --extra-copy`);
+      return;
+    }
+  }
 
   if (!Number.isFinite(startTime)) {
     console.error("--start-time must be an ISO date, e.g. 2026-09-14T16:18:00Z");

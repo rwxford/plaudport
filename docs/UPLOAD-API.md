@@ -24,9 +24,21 @@ Observed: a token copied one afternoon was rejected ~24 hours later with
 read locally without any network call — `npm run check:auth` prints the expiry,
 and `import:audio` refuses before uploading rather than after.
 
-Re-copying it by hand is the current answer. Plaud's web app must refresh it
-somehow; that flow has not been captured, and finding it means recording a
-session across an expiry boundary.
+`npm run set:auth` reduces the chore to: copy the header value, run one command.
+It validates the token and reports the new expiry rather than writing whatever
+was on the clipboard.
+
+Fully automating it needs one of:
+
+1. **Plaud's own refresh call.** The web app must have one — capturing it means
+   recording a session across an expiry boundary, or watching for whichever
+   request returns a fresh token.
+2. **A login endpoint.** If `email + password` mints a token, the tool could
+   renew unattended. Plaud requires SSO users to set a password first, so this
+   may exist; no login flow has been captured.
+3. **Reading the browser's own copy** out of Chrome's local storage. Possible on
+   macOS, but it means a tool rummaging in a browser profile for a credential —
+   a meaningful step up in intrusiveness for a daily convenience.
 
 **Lesson for the next capture:** always export with *"with sensitive data"*, and
 treat a capture with no auth headers as suspect rather than informative.

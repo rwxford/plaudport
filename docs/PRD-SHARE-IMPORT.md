@@ -106,13 +106,13 @@ different links still dedupes.
 | 1 | `probe:share` reports what a link exposes without printing meeting content | ✅ |
 | 2 | One command lands the recording in Personal | ⚠️ two commands (`fetch:share`, `import:audio`), and the **audio only** — the original transcript is archived locally but not attached to the Plaud copy |
 | 3 | The Plaud MCP finds that recording afterwards — verified, not assumed | ✅ 2026-09-16 |
-| 4 | Re-running the same link changes nothing and says so | ✅ for fetch; **import is not yet idempotent** — running it twice uploads twice |
+| 4 | Re-running the same link changes nothing and says so | ✅ both: `fetch:share` verifies by checksum and skips, `import:audio` refuses a second upload unless `--extra-copy` is passed |
 | 5 | A local backup of audio + transcript exists before anything is written to Plaud | ✅ |
 | 6 | Nothing in the repo or its reports contains the share token or meeting content | ✅ |
 
-**Known gap (criterion 4):** `import:audio` has no ledger check. The manifest
-records `importedFileId` after a successful import, but nothing reads it back to
-refuse a second upload of the same audio. That is the next thing worth fixing.
+Remaining rough edge: the bearer token expires daily and is refreshed by hand
+(`npm run set:auth` makes that one command). Unattended renewal needs a login or
+refresh endpoint that has not been captured — see `docs/UPLOAD-API.md`.
 
 ## 9. Milestones
 - **S0 — Probe.** `probe:share` + share-link parsing. ✅ built and tested.
@@ -134,8 +134,11 @@ refuse a second upload of the same audio. That is the next thing worth fixing.
   in Plaud and presumably costs plan minutes. Writing the share's own transcript
   onto the imported file would save that step and preserve the original wording
   rather than producing a second, different transcript of the same audio.
-  Unproven: whether any endpoint accepts a transcript for a file. Finding out
-  means capturing a transcript edit in the web app.
+  **Closed as not possible (2026-09-16):** Plaud offers no way to supply your own
+  transcript, not even manually in the web app. There is therefore no endpoint to
+  find. An imported recording is audio; transcription is Plaud's to produce, on
+  request, at whatever it costs in plan minutes. The share's original transcript
+  stays in the local archive and is the fuller record of the two.
 - **S4 — Local web UI.** Paste a link, click Import, watch progress (D4).
 - **S5 — HLS support (conditional).** Only if the audio turns out to be segmented;
   needs ffmpeg. Skipped otherwise.

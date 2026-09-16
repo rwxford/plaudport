@@ -91,9 +91,17 @@ npm run import:audio -- --from-share data/shares/<folder>
 ```
 
 That step needs credentials in `.env` — see `docs/UPLOAD-API.md` for how to
-capture them. **Plaud's bearer token expires after about a day**, so expect to
-re-copy `PLAUD_AUTH` periodically; `npm run check:auth` tells you when it expires
-before you upload anything. Add `--dry-run` to see what would be sent first.
+capture them. Re-running it will **refuse to upload a second copy**; pass
+`--extra-copy` when you actually want one. `--dry-run` shows what would be sent.
+
+**Plaud's bearer token expires after about a day.** Refreshing it is two steps:
+copy the `authorization` value in DevTools, then
+
+```bash
+npm run set:auth        # takes it from your clipboard, checks it, writes .env
+```
+
+`npm run check:auth` reports the expiry any time, before you upload anything.
 
 For the migration spike (needs your own token):
 
@@ -130,7 +138,8 @@ freshness); they're listed and commented out at the bottom of `.env.example`.
 | `npm run fetch:share -- "<link>"` | **Archive a shared meeting**: audio + transcript + notes |
 | `npm run probe:share -- "<link>"` | Report what a public share link exposes |
 | `npm run import:audio -- --from-share <dir>` | **Upload** an archived recording into your workspace |
-| `npm run check:auth` | Check your upload credentials without uploading anything |
+| `npm run check:auth` | Check your upload credentials, and when they expire |
+| `npm run set:auth` | Update the expiring bearer token from the clipboard |
 | `npm run fetch:audio -- --from-scan` | Download audio found by `scan:har` (fallback route) |
 | `npm run scan:har -- <file.har>` | Derive the endpoint map from a DevTools HAR export |
 | `npm run scan:upload -- <file.har>` | Work out how the web app uploads audio (for the import step) |
