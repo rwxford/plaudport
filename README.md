@@ -165,6 +165,7 @@ than halfway through. A JSON report of every run lands in `data/runs/`.
 | `npm run fetch:audio -- --from-scan` | Download audio found by `scan:har` (fallback route) |
 | `npm run scan:har -- <file.har>` | Derive the endpoint map from a DevTools HAR export |
 | `npm run scan:upload -- <file.har>` | Work out how the web app uploads audio (for the import step) |
+| `npm run scan:curl` | Describe a "Copy as cURL" request from the clipboard, values masked |
 | `npm run demo` | End-to-end self-test with a fake share page — no Plaud needed |
 | `npm test` | Unit tests |
 | `npm run spike` | M0 read-only probes → `data/spike-report.json` |

@@ -28,6 +28,17 @@ workspace anyway, so this step is useful work, not just a test.
    spinner, so the whole handshake is recorded.
 4. Network toolbar → **⬇ Export HAR (with sensitive data)** → save to Downloads.
    Give it a name you'll recognise, like `import.har`.
+
+   **If the ⬇ button gives you no menu**, your Chrome exports the sanitized
+   form, which strips `Authorization` and `Cookie` — and a capture missing those
+   will send you hunting for an auth mechanism that was simply redacted. Enable
+   the full export first: DevTools **⚙ (gear)** → **Preferences** → **Network** →
+   tick **"Allow to generate HAR with sensitive data"**.
+
+   Or skip HAR for a single request: right-click it → **Copy** → **Copy as cURL**,
+   then `npm run scan:curl`. That reads the clipboard and prints the endpoint,
+   header names and body fields with every value masked — safe to share, unlike
+   the cURL command itself.
 5. Run:
 
 ```bash
