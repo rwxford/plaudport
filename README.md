@@ -17,15 +17,20 @@ Runs entirely on your own machine. Nothing is hosted, and no data goes anywhere
 except between your Mac and Plaud.
 
 ## Status
-**Share import:** both halves built. Fetching a share needs no credentials at
-all; uploading into your own workspace needs `PLAUD_USER_TOKEN`. The upload path
-is written from a real captured import and passes an end-to-end self-test against
-a stand-in API — but has not yet run against live Plaud.
+**Share import: working end to end, verified against live Plaud (2026-09-16).**
+A shared meeting was archived from its link and uploaded into a Personal
+workspace, keeping its original title and recording date. Confirmed through
+Plaud's own MCP, independently of this tool: the recording exists, is dated when
+the meeting happened rather than when it was uploaded, and its checksum matches
+the local copy.
 
-Not yet possible: attaching the original transcript to the uploaded copy, so
-Plaud re-transcribes it. The original is preserved locally regardless.
+Plaud transcribes the uploaded copy itself, with speaker names — so an imported
+recording ends up with a transcript without us writing one. The share's original
+transcript is archived locally either way, which matters because the two are not
+identical.
 
-**Migration:** a **read-only spike** for Plaud's unofficial web API.
+**Migration:** a **read-only spike** for Plaud's unofficial web API. The upload
+flow proven here is the same one its M0 gate needed.
 
 ## Why this exists
 - Plaud has no public general-purpose API.

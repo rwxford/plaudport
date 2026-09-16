@@ -37,6 +37,9 @@ interface ShareManifest {
   durationMs?: number | null;
   audio?: { file?: string; sha256?: string; bytes?: number } | null;
   importedFileId?: string;
+  /** The same id with the `of_` prefix Plaud's own APIs and MCP use. */
+  importedFileIdPrefixed?: string;
+  importedAt?: string;
 }
 
 function arg(name: string): string | undefined {
@@ -169,6 +172,7 @@ async function main() {
     });
 
     console.log(`\n  Imported. Plaud file id: ${created.id ?? "(not returned)"}`);
+    if (created.id) console.log(`  Look it up as: of_${created.id}  (Plaud's APIs and MCP prefix file ids)`);
     if (created.filesize && created.filesize !== bytes) {
       console.log(`  NOTE: Plaud recorded ${created.filesize} bytes, we sent ${bytes}.`);
     }
@@ -183,6 +187,11 @@ async function main() {
       const manifestPath = join(shareDir, "manifest.json");
       const manifest: ShareManifest = JSON.parse(readFileSync(manifestPath, "utf8"));
       manifest.importedFileId = created.id;
+      // confirm_upload returns a bare id, but Plaud's file ids carry an `of_`
+      // prefix everywhere else — including the official MCP, where the bare form
+      // is simply not found. Record both so the manifest is usable as-is.
+      manifest.importedFileIdPrefixed = created.id ? `of_${created.id}` : undefined;
+      manifest.importedAt = new Date().toISOString();
       writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
       console.log(`  Recorded the new file id in ${manifestPath}`);
       if (manifest.durationMs) console.log(`  Expect a ${humanDuration(manifest.durationMs)} recording in Plaud.`);

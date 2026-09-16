@@ -101,12 +101,18 @@ different links still dedupes.
   your copy.
 
 ## 8. Acceptance criteria
-1. `npm run probe:share -- <link>` reports what the link exposes, without printing meeting content.
-2. Given a working link, one command lands the recording in Personal with its original transcript attached.
-3. The Plaud MCP can find that recording afterwards — verified, not assumed.
-4. Re-running the same link changes nothing and says so.
-5. A local backup of audio + transcript exists before anything is written to Plaud.
-6. Nothing in the repo or its reports ever contains the share token or meeting content.
+| # | Criterion | Status |
+|---|---|---|
+| 1 | `probe:share` reports what a link exposes without printing meeting content | ✅ |
+| 2 | One command lands the recording in Personal | ✅ two commands (`fetch:share`, `import:audio`); a transcript comes from Plaud rather than being attached by us |
+| 3 | The Plaud MCP finds that recording afterwards — verified, not assumed | ✅ 2026-09-16 |
+| 4 | Re-running the same link changes nothing and says so | ✅ for fetch; **import is not yet idempotent** — running it twice uploads twice |
+| 5 | A local backup of audio + transcript exists before anything is written to Plaud | ✅ |
+| 6 | Nothing in the repo or its reports contains the share token or meeting content | ✅ |
+
+**Known gap (criterion 4):** `import:audio` has no ledger check. The manifest
+records `importedFileId` after a successful import, but nothing reads it back to
+refuse a second upload of the same audio. That is the next thing worth fixing.
 
 ## 9. Milestones
 - **S0 — Probe.** `probe:share` + share-link parsing. ✅ built and tested.
@@ -117,14 +123,19 @@ different links still dedupes.
   directly: audio, both transcripts, outline, notes, metadata, an integrity
   manifest and a readable markdown archive. Idempotent. **This satisfies the
   fallback in full** — hand-import the mp3 and nothing is lost.
-- **S2 — Import.** ✅ built: `import:audio` runs Plaud's four-step upload
-  (presign → PUT parts → merge → confirm), keeping the original title and
-  recording date. Passes an end-to-end self-test against a stand-in API;
-  **not yet run against live Plaud.**
-- **S3 — Attach + verify.** Verification via the official Plaud MCP is available
-  now. Attaching the original transcript remains unproven — no observed endpoint
-  writes one. If none exists, Plaud re-transcribes and the original stays in the
-  local archive (acceptable: FR11c always kept the original authoritative).
+- **S2 — Import.** ✅ **Done and verified against live Plaud (2026-09-16).**
+  `import:audio` runs the four-step upload (presign → PUT 5 MiB parts → merge →
+  confirm), keeping the original title and recording date. Confirmed through the
+  official MCP: the recording exists with the right title, dated 2026-09-14 as
+  the meeting was, checksum matching the local copy.
+- **S3 — Attach + verify.** ✅ Verification via the official MCP works.
+  **Attaching the original transcript turned out to be largely moot:** Plaud
+  transcribes the uploaded copy itself, with speaker names, so the recording is
+  searchable in Plaud without us writing anything. The two transcripts differ,
+  and the share's original stays in the local archive — which is what FR11c
+  wanted anyway (the original remains authoritative).
+  Still unproven, and now lower value: whether a transcript *can* be written onto
+  a Plaud file.
 - **S4 — Local web UI.** Paste a link, click Import, watch progress (D4).
 - **S5 — HLS support (conditional).** Only if the audio turns out to be segmented;
   needs ffmpeg. Skipped otherwise.

@@ -113,6 +113,10 @@ POST https://api.plaud.ai/file/confirm_upload
 This is the one that makes the recording exist. `data.id` is the new file id —
 the handle for verifying the import afterwards through the official Plaud MCP.
 
+**Mind the prefix.** `confirm_upload` returns a bare id like
+`e3732bd1…`, but Plaud's file ids carry an `of_` prefix everywhere else,
+including the MCP — where the bare form returns 404. Same id, two spellings.
+
 `filename`, `start_time` and `timezone` are ours to set, which means an imported
 share can carry **its original title and recording date** rather than the date it
 was uploaded.
