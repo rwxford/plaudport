@@ -10,9 +10,9 @@
  * If this passes, the machinery works on your machine and the only unknown left
  * is Plaud's real page. No Plaud account, no login, no network access needed.
  */
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { join } from "node:path";
 
@@ -299,8 +299,51 @@ async function main() {
   const partsAfter = [...uploaded.values()].reduce((n, b) => n + b.length, 0);
   check(partsAfter === partsBefore, "and uploaded nothing", `${partsBefore} -> ${partsAfter} bytes`);
 
+  // 6b. a recording downloaded from somewhere else (Gong hands out WAV or MP4)
+  console.log("\nStep 5: importing a downloaded recording (a stand-in for a Gong WAV)…");
+  if (spawnSync("ffmpeg", ["-version"]).error) {
+    console.log("  (skipped: ffmpeg not installed — `brew install ffmpeg` to run this step)");
+  } else {
+    uploaded.clear();
+    confirmBody = null;
+    const gongWav = join(DEMO_DIR, "Demo Gong call.wav");
+    writeFileSync(gongWav, makeWav({ seconds: 3, freq: 330 }));
+    const gong = await run(
+      ["src/importBatch.ts", gongWav, "--title", "Demo Gong call", "--date", "2026-09-20 14:30"],
+      importEnv,
+    );
+    check(gong.code === 0, "npm run import took the audio file", gong.code === 0 ? undefined : gong.out.slice(-400));
+    check(/Converting WAV to MP3/.test(gong.out), "converted the WAV to MP3 before uploading");
+    const sent = Buffer.concat([...uploaded.entries()].sort((a, b) => a[0] - b[0]).map(([, b]) => b));
+    check(
+      sent.subarray(0, 3).toString("latin1") === "ID3" || (sent[0] === 0xff && (sent[1] & 0xe0) === 0xe0),
+      "what was uploaded is an MP3, not the WAV",
+    );
+    check(confirmBody?.file_type === "MP3" && confirmBody?.filename === "Demo Gong call", "confirmed with the given title");
+    check(confirmBody?.start_time === new Date(2026, 8, 20, 14, 30).getTime(), "dated with --date, read as local time");
+
+    const importsDir = join(DEMO_DIR, "imports");
+    const archived = existsSync(importsDir) ? readdirSync(importsDir).find((d) => d.endsWith("-demo-gong-call")) : undefined;
+    const localManifest = archived ? JSON.parse(readFileSync(join(importsDir, archived, "manifest.json"), "utf8")) : {};
+    check(localManifest.importedFileIdPrefixed === "of_demo-file-id", "archived the MP3 and recorded the Plaud file id");
+
+    // The same download under another name must be recognised by its content.
+    const bytesBefore = [...uploaded.values()].reduce((n, b) => n + b.length, 0);
+    const renamed = join(DEMO_DIR, "renamed copy.wav");
+    copyFileSync(gongWav, renamed);
+    const again2 = await run(["src/importBatch.ts", renamed], importEnv);
+    check(/Already in Plaud as of_demo-file-id/.test(again2.out), "a renamed copy of the same file is recognised");
+    check([...uploaded.values()].reduce((n, b) => n + b.length, 0) === bytesBefore, "and nothing is uploaded again");
+
+    // Without --date, a download's timestamp is the download day: say so.
+    const undated = join(DEMO_DIR, "undated.wav");
+    writeFileSync(undated, makeWav({ seconds: 1, freq: 550 }));
+    const guess = await run(["src/importBatch.ts", undated, "--fetch-only"], importEnv);
+    check(guess.code === 0 && /WARNING: that date is only when the file was saved/.test(guess.out), "warns when the date is only a guess");
+  }
+
   // 7. guards
-  console.log("\nStep 5: checking the safety guards…");
+  console.log("\nStep 6: checking the safety guards…");
   const badHost = await run(["src/fetchAudio.ts", `http://127.0.0.1:${port}/media/recording.wav`], {
     PLAUD_DATA_DIR: DEMO_DIR,
   });

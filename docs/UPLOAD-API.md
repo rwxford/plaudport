@@ -45,7 +45,8 @@ Fully automating it needs one of:
 
 ### Is there a refresh token?
 
-Unknown, and worth settling before building anything. Two cheap checks, in order:
+Unknown, and worth settling before building anything. Tracked in
+[issue #1](https://github.com/rwxford/plaudport/issues/1). Two cheap checks, in order:
 
 1. **Look at where the web app keeps its credentials.** DevTools →
    **Application** → **Storage** → **Local Storage** → `https://web.plaud.ai`.
