@@ -13,7 +13,16 @@ import { join } from "node:path";
  * code path instead of drifting apart.
  */
 
-export interface ShareManifest {
+/** What the importer records once a recording is in Plaud — shared by share
+ *  archives and local-file imports, so both dedupe the same way. */
+export interface ImportRecord {
+  importedFileId?: string;
+  /** The same id with the `of_` prefix Plaud's own APIs and MCP use. */
+  importedFileIdPrefixed?: string;
+  importedAt?: string;
+}
+
+export interface ShareManifest extends ImportRecord {
   shareId: string;
   fetchedAt: string;
   title: string;
@@ -23,10 +32,6 @@ export interface ShareManifest {
   audio: { file: string; bytes: number; sha256: string; contentType: string | null } | null;
   counts: { utterances: number; polishedUtterances: number; outlineTopics: number; notes: number };
   files: string[];
-  importedFileId?: string;
-  /** The same id with the `of_` prefix Plaud's own APIs and MCP use. */
-  importedFileIdPrefixed?: string;
-  importedAt?: string;
 }
 
 export interface ArchiveResult {
@@ -44,11 +49,11 @@ export function manifestPath(dir: string): string {
   return join(dir, "manifest.json");
 }
 
-export function readManifest(dir: string): ShareManifest | null {
+export function readManifest<T extends ImportRecord = ShareManifest>(dir: string): T | null {
   const path = manifestPath(dir);
   if (!existsSync(path)) return null;
   try {
-    return JSON.parse(readFileSync(path, "utf8")) as ShareManifest;
+    return JSON.parse(readFileSync(path, "utf8")) as T;
   } catch {
     return null;
   }

@@ -23,7 +23,7 @@ done < <(git ls-files -- '.env' '.env.*' 2>/dev/null)
 # 2. Media / database / report files that could only be your own Plaud data.
 while IFS= read -r f; do
   note "tracked data file: $f — your recordings and ledger belong in ./data (gitignored)"
-done < <(git ls-files -- '*.mp3' '*.m4a' '*.wav' '*.aac' '*.flac' '*.sqlite' '*.db' '*-report.json' 2>/dev/null)
+done < <(git ls-files -- '*.mp3' '*.m4a' '*.wav' '*.aac' '*.flac' '*.ogg' '*.opus' '*.mp4' '*.mov' '*.m4v' '*.webm' '*.mkv' '*.sqlite' '*.db' '*-report.json' 2>/dev/null)
 
 # 3. Credential-shaped strings in tracked text.
 #    Patterns are built at runtime so this script does not trip over itself.

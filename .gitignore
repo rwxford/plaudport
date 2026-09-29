@@ -23,14 +23,20 @@ spike-report.json
 reconciliation-*.csv
 manifest.json
 
-# Media that could only be your own recordings
+# Media that could only be your own recordings — or someone else's calls
+# (a Gong download is customer data)
 *.mp3
 *.m4a
 *.wav
 *.aac
 *.ogg
 *.flac
+*.opus
 *.mp4
+*.mov
+*.m4v
+*.webm
+*.mkv
 
 # --- Build / tooling ---------------------------------------------------------
 node_modules/

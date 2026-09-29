@@ -3,13 +3,17 @@
 Local-first, single-user tool (macOS) for getting Plaud recordings where you need
 them, so they're reachable by the Plaud MCP from Claude.
 
-Two jobs, in priority order:
+Three jobs, in priority order:
 
 1. **Import a shared meeting into your Plaud** *(primary)* — someone sends you a
    `web.plaud.ai/s/pub_…` share link; this pulls it into your **Personal**
-   workspace as a real recording, audio and original transcript intact.
+   workspace as a real recording, with its original title and date. The
+   original transcript is archived locally; Plaud has no way to accept it.
    See `docs/PRD-SHARE-IMPORT.md`.
-2. **Consolidate Personal → Team** *(secondary)* — back up everything you own and
+2. **Import a Gong call** — download the recording from Gong, and one command
+   converts it and lands it in Plaud with the right title and date.
+   See `docs/GONG.md`.
+3. **Consolidate Personal → Team** *(secondary)* — back up everything you own and
    copy your own recordings into the Team workspace, private to you.
    See `docs/PRD.md`.
 
@@ -28,6 +32,12 @@ An imported recording arrives as **audio only**. Transcription is something you
 ask Plaud for afterwards — it does not happen automatically, and it presumably
 draws on your plan's minutes. The share's original transcript is archived locally
 regardless, so nothing is lost either way, but it does not travel into Plaud.
+
+**Gong import (phase 1): built, not yet run for real.** Converting a downloaded
+recording and uploading it is tested end to end against a stand-in Plaud
+(`npm run demo`). It uses the same upload path already proven live. It hasn't
+yet been run on an actual Gong download. See `docs/GONG.md` for the two things
+to check on the first one.
 
 **Migration:** a **read-only spike** for Plaud's unofficial web API. The upload
 flow proven here is the same one its M0 gate needed.
@@ -60,6 +70,7 @@ hook) fails the build if any of them get staged. See `SECURITY.md`.
 ## Requirements
 - macOS, Node.js ≥ 20
 - For share-link import: nothing else — no login, no config
+- For importing Gong downloads or other non-MP3 files: `brew install ffmpeg`
 - For the migration side: a Plaud account with Personal + Team workspaces, and a
   bearer token captured from web.plaud.ai (see `docs/ENDPOINTS.md`)
 
@@ -133,6 +144,24 @@ npm run set:auth        # takes it from your clipboard, checks it, writes .env
 
 `npm run check:auth` reports the expiry any time, before you upload anything.
 
+## A Gong call, or any recording on disk
+
+Still the same `import` command. Download the call from Gong (**⋮ → Download**),
+then:
+
+```bash
+npm run import -- ~/Downloads/"Acme discovery.mp4" --title "Acme discovery" --date "2026-09-20 14:00"
+```
+
+It converts MP4/WAV to MP3 (needs ffmpeg), archives it under `data/imports/`,
+and uploads it dated when the call happened. **Pass `--date`**: a download's
+own timestamp is the day you downloaded it, and the command warns you if that's
+all it has. The same file, even renamed, is only ever imported once.
+`~/Downloads/*.mp4` imports several at once. Details, and the plan for fetching
+from Gong automatically, are in `docs/GONG.md`.
+
+## The migration spike
+
 For the migration spike (needs your own token):
 
 ```bash
@@ -166,7 +195,7 @@ freshness); they're listed and commented out at the bottom of `.env.example`.
 | Command | What it does |
 |---|---|
 | `npm run probe:share -- "<link>"` | Report what a public share link exposes |
-| `npm run import -- "<link>" \| <links.txt>` | **Archive + import.** One link, a file of them, or a mix |
+| `npm run import -- "<link>" \| <links.txt> \| <call.mp4>` | **Archive + import.** Share links, a file of them, recordings on disk (e.g. Gong downloads), or a mix |
 | `npm run import:audio -- --from-share <dir>` | Upload an already-archived recording (lower level) |
 | `npm run fetch:share -- "<link>"` | Archive only, without uploading (lower level) |
 | `npm run check:auth` | Check your upload credentials, and when they expire |

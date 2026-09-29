@@ -1,4 +1,4 @@
-import { manifestPath, readManifest, type Logger, type ShareManifest } from "./archive.js";
+import { manifestPath, readManifest, type ImportRecord, type Logger } from "./archive.js";
 import {
   assertTokenUsable,
   confirmUpload,
@@ -23,7 +23,8 @@ export interface ImportOptions {
   title: string;
   /** Epoch ms — the ORIGINAL recording time, not now. */
   startTime: number;
-  /** When given, the manifest there gates duplicates and records the result. */
+  /** An archive folder (share or local file): its manifest gates duplicates
+   *  and records the result. */
   shareDir?: string;
   extraCopy?: boolean;
   sessionId?: number;
@@ -49,7 +50,7 @@ export async function importArchive(opts: ImportOptions): Promise<ImportResult> 
   const log = opts.log ?? noop;
   const bytes = statSync(opts.audioPath).size;
 
-  const previous: ShareManifest | null = opts.shareDir ? readManifest(opts.shareDir) : null;
+  const previous = opts.shareDir ? readManifest<ImportRecord>(opts.shareDir) : null;
   if (previous?.importedFileId && !opts.extraCopy) {
     return {
       status: "already-imported",
@@ -94,7 +95,7 @@ export async function importArchive(opts: ImportOptions): Promise<ImportResult> 
     : undefined;
 
   if (opts.shareDir && created.id) {
-    const manifest = readManifest(opts.shareDir);
+    const manifest = readManifest<ImportRecord>(opts.shareDir);
     if (manifest) {
       manifest.importedFileId = created.id;
       manifest.importedFileIdPrefixed = prefixedFileId(created.id);
