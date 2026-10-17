@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, symlinkSync, realpathSync } from "node:fs";
 import { createServer as createHttpServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -350,4 +350,91 @@ test("KeyedMutex serializes the same key and runs different keys concurrently", 
   // A thrown task still releases the key for the next one.
   await assert.rejects(m.run("z", () => Promise.reject(new Error("boom"))));
   assert.equal(await m.run("z", () => Promise.resolve("ok")), "ok");
+});
+
+
+test("connection verification is token-gated and never exposes credentials", async () => {
+  const token = "abc123def456";
+  let checks = 0;
+  const server = mod.createServer(token, undefined, { envPath: noEnv, checkConnection: async () => { checks++; } });
+  const port = await listen(server);
+  try {
+    const denied = await fetch(`http://127.0.0.1:${port}/api/auth/check`, { method: "POST" });
+    assert.equal(denied.status, 403);
+    assert.equal(checks, 0);
+    const reply = await fetch(`http://127.0.0.1:${port}/api/auth/check`, { method: "POST", headers: { "x-plaudport-token": token } });
+    assert.equal(reply.status, 200);
+    assert.equal(checks, 1);
+    const text = await reply.text();
+    assert.equal(JSON.parse(text).verified, true);
+    assert.ok(!text.includes(process.env.PLAUD_USER_TOKEN!));
+    assert.ok(!text.includes(process.env.PLAUD_AUTH!));
+  } finally { server.close(); }
+});
+
+test("a failed connection check gives recovery guidance without the upstream error", async () => {
+  const token = "abc123def456";
+  const server = mod.createServer(token, undefined, { envPath: noEnv, checkConnection: async () => { throw Error("private-upstream-error"); } });
+  const port = await listen(server);
+  try {
+    const reply = await fetch(`http://127.0.0.1:${port}/api/auth/check`, { method: "POST", headers: { "x-plaudport-token": token } });
+    assert.equal(reply.status, 502);
+    const text = await reply.text();
+    assert.ok(text.includes("Reload your signed-in Personal workspace"));
+    assert.ok(!text.includes("private-upstream-error"));
+  } finally { server.close(); }
+});
+
+test("missing upload credentials fail the job without stopping the server", async () => {
+  const token = "abc123def456", saved = process.env.PLAUD_USER_TOKEN;
+  const server = mod.createServer(token, undefined, { envPath: noEnv });
+  const port = await listen(server);
+  try {
+    process.env.PLAUD_USER_TOKEN = "";
+    const start = await fetch(`http://127.0.0.1:${port}/api/import`, { method: "POST", headers: { "x-plaudport-token": token, "content-type": "application/json" }, body: JSON.stringify({ links: "https://web.plaud.ai/s/pub_00000000-0000-4000-8000-000000000000::demotoken" }) });
+    const { jobId } = await start.json() as { jobId: string };
+    const events = await (await fetch(`http://127.0.0.1:${port}/api/jobs/${jobId}/events?t=${token}`)).text();
+    assert.ok(events.includes('"reason":"auth"'));
+    assert.ok(events.includes('"stage":"failed"'));
+    assert.equal((await fetch(`http://127.0.0.1:${port}/`)).status, 200);
+  } finally {
+    if (saved === undefined) delete process.env.PLAUD_USER_TOKEN; else process.env.PLAUD_USER_TOKEN = saved;
+    server.close();
+  }
+});
+
+test("safeBackupPath rejects outside folders and escaping symlinks", () => {
+  const outside = mkdtempSync(join(tmpdir(), "plaudport-outside-"));
+  const inside = join(dataDir, "shares", "safe-folder");
+  const link = join(dataDir, "shares", "escaping-link");
+  mkdirSync(inside, { recursive: true });
+  symlinkSync(outside, link);
+  try {
+    assert.equal(mod.safeBackupPath(inside), realpathSync(inside));
+    assert.throws(() => mod.safeBackupPath(outside));
+    assert.throws(() => mod.safeBackupPath(link));
+  } finally { rmSync(link); rmSync(outside, { recursive: true, force: true }); }
+});
+
+test("backup opening accepts only a known job's archive and is token-gated", async () => {
+  const token = randomBytes(8).toString("hex");
+  let opened = "";
+  const server = mod.createServer(token, undefined, { envPath: noEnv, openBackup: async path => { opened = path; } });
+  const port = await listen(server);
+  try {
+    const headers = { "x-plaudport-token": token, "content-type": "application/json" };
+    const start = await fetch(`http://127.0.0.1:${port}/api/import`, { method: "POST", headers, body: JSON.stringify({ links: "https://web.plaud.ai/s/pub_00000000-0000-4000-8000-000000000000::demotoken", fetchOnly: true }) });
+    const { jobId } = await start.json() as { jobId: string };
+    const stream = await (await fetch(`http://127.0.0.1:${port}/api/jobs/${jobId}/events?t=${token}`)).text();
+    assert.ok(stream.includes('"hasBackup":true'));
+    assert.ok(stream.includes('"recordedAt"'));
+    assert.ok(stream.includes('event: recording'));
+    assert.ok(!stream.includes(dataDir), "raw local paths must not go to the page");
+    const endpoint = `http://127.0.0.1:${port}/api/jobs/${jobId}/recordings/0/backup`;
+    assert.equal((await fetch(endpoint, { method: "POST" })).status, 403);
+    assert.equal(opened, "");
+    assert.equal((await fetch(endpoint, { method: "POST", headers })).status, 200);
+    assert.ok(opened.startsWith(realpathSync(join(dataDir, "shares"))));
+    assert.equal((await fetch(endpoint.replace("/0/backup", "/999/backup"), { method: "POST", headers })).status, 404);
+  } finally { server.close(); }
 });

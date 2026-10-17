@@ -78,3 +78,16 @@ key used for a stable extension ID. No private signing key is retained. Load the
 extension only in the Chrome profile used for the intended Plaud account and
 workspace. Anyone with access to your macOS account can read its credential store and `.env`; this
 integration does not protect against a compromised local user account.
+
+## Web UI result actions
+
+The web UI's connection check asks Plaud for an upload target and discards it;
+no recording is created. Session presence/expiry is displayed separately from
+this live verification. The bearer and session headers never go to the page.
+
+Opening a backup in Finder requires the same local session token as importing.
+The client supplies only a job ID and recording index; the server chooses the
+path from its own archive results and checks its real path stays inside the
+share archive directory, rejecting escaping symlinks. It never accepts a file
+path or shell command from the page. Recording titles and errors are rendered
+as text, never HTML.

@@ -1,332 +1,179 @@
 # PlaudPort
 
-Local-first, single-user tool (macOS) for getting Plaud recordings where you need
-them, so they're reachable by the Plaud MCP from Claude.
+**Copy a shared Plaud recording into your own Plaud account.** Paste a share link
+into a simple page on your Mac. PlaudPort saves a local backup and imports the
+audio into your **Personal** workspace, keeping the recording's original title
+and date. The original recording is never moved or deleted.
 
-Three jobs, in priority order:
+[Set up once](#set-up-once) · [Import a recording](#import-a-recording) ·
+[Find your results](#find-your-results) · [Get help](#when-something-goes-wrong)
 
-1. **Import a shared meeting into your Plaud** *(primary)* — someone sends you a
-   `web.plaud.ai/s/pub_…` share link; this pulls it into your **Personal**
-   workspace as a real recording, with its original title and date. The
-   original transcript is archived locally; Plaud has no way to accept it.
-   See `docs/PRD-SHARE-IMPORT.md`.
-2. **Import a Gong call** — download the recording from Gong, and one command
-   converts it and lands it in Plaud with the right title and date.
-   See `docs/GONG.md`.
-3. **Consolidate Personal → Team** *(secondary)* — back up everything you own and
-   copy your own recordings into the Team workspace, private to you.
-   See `docs/PRD.md`.
+![PlaudPort showing a successful import and a recording that needs attention](docs/images/web-ui.png)
 
-Runs entirely on your own machine. Nothing is hosted, and no data goes anywhere
-except between your Mac and Plaud.
+*Example interface using fictional recordings.*
 
-## Status
-**Share import: working end to end, verified against live Plaud (2026-09-16).**
-A shared meeting was archived from its link and uploaded into a Personal
-workspace, keeping its original title and recording date. Confirmed through
-Plaud's own MCP, independently of this tool: the recording exists, is dated when
-the meeting happened rather than when it was uploaded, and its checksum matches
-the local copy.
+## What gets copied?
 
-An imported recording arrives as **audio only**. Transcription is something you
-ask Plaud for afterwards — it does not happen automatically, and it presumably
-draws on your plan's minutes. The share's original transcript is archived locally
-regardless, so nothing is lost either way, but it does not travel into Plaud.
+| Item | Where it goes |
+|---|---|
+| Audio | Your Plaud Personal workspace and a backup on this Mac |
+| Original title and recording date | Preserved in your imported Plaud recording |
+| Original transcript and available summary | Saved in the local backup; they cannot be attached to the imported audio in Plaud |
 
-There are now two ways to drive it: the `npm run import` command, and a local
-web page (`npm run web`) that runs the same pipeline from the browser.
+**If you want a transcript inside Plaud, request transcription there after the
+import. Your plan's transcription minutes may apply.**
 
-**Gong import (phase 1): built, not yet run for real.** Converting a downloaded
-recording and uploading it is tested end to end against a stand-in Plaud
-(`npm run demo`). It uses the same upload path already proven live. It hasn't
-yet been run on an actual Gong download. See `docs/GONG.md` for the two things
-to check on the first one.
+## Before you start
 
-**Migration:** a **read-only spike** for Plaud's unofficial web API. The upload
-flow proven here is the same one its M0 gate needed.
+You need:
 
-## Why this exists
-- Plaud has no public general-purpose API.
-- The official Plaud MCP is **read-only** — it can't import or write.
-- Personal and Team workspaces are walled off; only audio imports natively, and
-  transcripts/summaries don't carry over. This tool fills those gaps.
-- Copies land **private inside Team**, which keeps them readable by the Plaud MCP.
-  (As of 2026-08 the MCP sees Personal files and private Team files, but *not*
-  files moved into the shared "Team files" folder — so promoting a file there is
-  a manual, deliberate choice. See `docs/PRD.md` §3.)
+- A Mac and Google Chrome, with access to your Plaud account.
+- [Node.js 20 or newer](https://nodejs.org/en/download). Install the current LTS
+  release if you do not already have Node.js.
+- A PlaudPort folder saved somewhere permanent on your Mac. You can download
+  this repository using GitHub's **Code → Download ZIP**, then unzip it.
 
-## Safety model
-- **Copy-only.** Never deletes or moves Personal originals.
-- **Backup-before-migrate.** Migration is blocked until a verified backup exists.
-- **Local-only.** Binds to `127.0.0.1`; audio never leaves your Mac except to Plaud.
-- **Secrets** live in `.env` (gitignored) and, from M1, the macOS Keychain — never
-  in the repo, reports, or logs.
-- **Redacted by default.** Run reports keep response *shapes*, not content.
-- Uses an **unofficial, reverse-engineered API** that may break without notice.
+Setup uses Terminal once. After that, you can launch PlaudPort from Finder and
+import share links from its browser page. No separate hosting account is needed.
 
-## This repository is public
-Nothing account-specific belongs in it. Your token, recordings, transcripts,
-ledger, and reports all live under `./data` and `.env`, both fully gitignored,
-and `npm run check:secrets` (also a CI step, and installable as a pre-commit
-hook) fails the build if any of them get staged. See `SECURITY.md`.
+## Set up once
 
-## Requirements
-- macOS, Node.js ≥ 20
-- For share-link import: nothing else — no login, no config
-- For importing Gong downloads or other non-MP3 files: `brew install ffmpeg`
-- For the migration side: a Plaud account with Personal + Team workspaces, and a
-  bearer token captured from web.plaud.ai (see `docs/ENDPOINTS.md`)
+### 1. Install PlaudPort's dependencies and Chrome helper
 
-## Quick start
+Open **Terminal**. Type `cd ` (including the space), drag your PlaudPort folder
+from Finder into Terminal, and press Return. This tells Terminal which folder
+to work in. Then run these commands, one at a time:
 
 ```bash
-npm install
-npm run import -- "https://web.plaud.ai/s/pub_xxxxxxxx::xxxxxxxx"
-```
-
-One command: archives the meeting locally, then uploads it into your Plaud
-Personal workspace keeping its **original title and recording date**. The same
-command takes a file of links, or any mix — see below.
-
-Uploading needs credentials from [Chrome sync](#automatic-credentials-from-chrome)
-or `.env` (`docs/UPLOAD-API.md`); archiving needs nothing at all, since a share link is its own authorisation. To archive without
-uploading, add `--fetch-only`:
-
-```bash
-npm run import -- "<link>" --fetch-only
-```
-
-Either way you get, under `data/shares/<share-id>-<title>/`:
-
-- `audio.mp3` — the recording, checksummed
-- `transcript.txt` — the original transcript, `[mm:ss] Speaker: text`
-- `transcript-polished.txt` — Plaud's AI-cleaned version
-- `recording.md` — title, date, length, summary, outline and both transcripts in
-  one readable document
-- `detail.json` + `manifest.json` — the raw response and an integrity record
-
-Re-running is safe: audio already archived is verified by checksum and not
-re-downloaded, and a recording already imported is not uploaded twice. Pass
-`--extra-copy` when a second copy is genuinely what you want.
-
-## Several links at once
-
-The same `import` command. Put the links in a file, one per line — `#` comments
-and blank lines are fine, so it doubles as a working list:
-
-```
-# AWS Federal AI Symposium, 09-15
-https://web.plaud.ai/s/pub_aaaa…::tok
-https://web.plaud.ai/s/pub_bbbb…::tok
-```
-
-```bash
-npm run import -- links.txt                       # archive + import each
-npm run import -- links.txt "https://…" "https://…"   # any mix of files and links
-npm run import -- links.txt --fetch-only          # archive only, no upload
-npm run import -- links.txt --extra-copy          # re-import ones already done
-```
-
-Each link is archived locally and then uploaded, keeping its original title and
-recording date. Ten links takes one command and a few minutes.
-
-- **Already imported links are skipped**, so re-running is safe and cheap.
-- **One bad link doesn't sink the run** — every link is attempted, and the
-  summary at the end names the ones that need attention.
-- **The credential is checked once up front**, so an expired token stops the run
-  before anything uploads rather than on link 9 of 12. If it expires mid-run, the
-  run stops and says so; reload your signed-in Plaud page to sync fresh
-  credentials, then re-run. `npm run set:auth` remains the manual fallback.
-- A JSON report of every run lands in `data/runs/`.
-
-## Automatic credentials from Chrome
-
-On **macOS with Google Chrome**, PlaudPort can capture credentials from your
-signed-in Plaud session automatically. One-time setup replaces daily DevTools
-and token copy/paste. Node.js 20 or newer is required.
-
-### One-time setup
-
-Keep the checkout at a permanent location on your Mac. In Terminal, change into
-that checkout and run:
-
-```bash
-cd /path/to/plaudport
 npm install
 npm run chrome:install
 ```
 
-The installer registers a local helper and prints the full extension directory.
-The helper runs from Application Support so Chrome does not need to execute
-scripts inside macOS-protected Documents folders.
+The installer prints the full path to the Chrome extension folder. Keep that
+Terminal window open for the next step. The helper and saved credentials live
+in Application Support, outside your project folder.
 
-1. In the Chrome **profile you use for Plaud**, open `chrome://extensions`.
-2. Turn on **Developer mode**, click **Load unpacked**, and select the
-   `chrome-extension` folder inside your PlaudPort checkout. Select the folder,
-   not an individual file.
-3. Open Chrome's **Extensions** menu (the puzzle-piece icon) and pin
-   **PlaudPort credential sync** so you can see its badge.
-4. Open [web.plaud.ai](https://web.plaud.ai/), sign in, select your **Personal**
-   workspace, and reload the page. The extension badge should turn green **OK**.
-   Click the toolbar icon for status and diagnostics; it never displays tokens.
-5. Back in the same Terminal directory, verify the credentials:
+### 2. Add the Chrome extension
 
-   ```bash
-   npm run check:auth
-   ```
+1. Use the Chrome **profile where you sign in to Plaud**.
+2. Type `chrome://extensions` into Chrome's address bar and press Return.
+3. Turn on **Developer mode** and click **Load unpacked**.
+4. Select the **chrome-extension** folder inside your PlaudPort folder. Choose
+   the folder itself, not one of the files inside it.
+5. In Chrome's **Extensions** menu (the puzzle-piece icon), pin
+   **PlaudPort credential sync** so its status badge is visible.
+6. Open [Plaud](https://web.plaud.ai/), sign in, choose your **Personal**
+   workspace, and reload the Plaud page. The extension badge should show green
+   **OK**, meaning your session was saved on this Mac.
 
-   Look for **Authenticated.** The check requests and discards an upload target;
-   it does not add a recording to Plaud. The green badge confirms a local save,
-   while this command confirms that Plaud accepts the saved credentials.
+The extension refreshes PlaudPort's saved credentials while you use Plaud. You do
+not need to copy tokens, edit configuration files, or open developer tools.
 
-### Import and everyday use
+### 3. Open PlaudPort and check the connection
 
-Once authenticated, import a single share link with:
+In Finder, double-click **Open-PlaudPort.command** inside your PlaudPort folder.
+A Terminal window starts the local server and opens the page in your browser.
+Leave that window running while you use PlaudPort.
 
-```bash
-npm run import -- "https://web.plaud.ai/s/pub_…::…"
-```
-
-Replace the example with the full share URL. The import archives the recording
-locally and uploads it to your Personal workspace, preserving its title and date.
-While you use Plaud in Chrome, new authenticated requests keep the saved
-credentials current without copy/paste.
-
-Credentials are stored with owner-only permissions in
-`~/Library/Application Support/PlaudPort/chrome-auth.env`, outside the repository.
-PlaudPort reads that file automatically. These Chrome credentials override the
-same keys in `.env`; explicit shell environment variables still take precedence.
-Use the extension only in the intended Chrome profile and Plaud workspace,
-since the last captured session supplies the next import's credentials.
-
-The bearer expires after about a day. If Chrome has been idle, **reload Plaud
-before importing**. If Plaud has signed you out, sign back in. Chrome must be
-running with a signed-in session; this does not perform unattended SSO renewal.
-
-### Updates and troubleshooting
-
-- After updating the helper code or upgrading Node.js, rerun
-  `npm run chrome:install` to refresh the installed helper copy.
-- After updating extension files, open `chrome://extensions` and click the
-  extension's **reload ↻** icon, then reload Plaud.
-- If the badge shows **!**, click the extension icon for its diagnostic message.
-  For `HOST_EXITED` with an older installation, rerun `npm run chrome:install`
-  to move the helper into Application Support, then reload Plaud.
-- If your organization blocks unpacked extensions or native messaging, the
-  manual fallback remains available: copy the `authorization` value from
-  DevTools and run `npm run set:auth`. Remove or disable the Chrome credential
-  store first if you want the manual `.env` value to take precedence.
-
-See [Chrome setup, troubleshooting, and removal](docs/CHROME-AUTH.md) for details.
-Verified live on 2026-10-17 with automatic capture, successful authentication,
-and a successful share-link import.
-
-## A web page instead of the terminal
-
-If pasting a link into a terminal isn't your thing:
+If double-clicking does not launch it, return to Terminal in your PlaudPort
+folder and run:
 
 ```bash
-npm run web      # then open http://127.0.0.1:4317
+npm start
 ```
 
-A small page: paste one or more share links, optionally tick **Archive only** or
-**Import again if already there**, click **Import**, and the same archive-and-upload
-runs with progress streaming live. A banner shows whether your token is current.
+Click **Check connection** on the page. **Connection verified** means Plaud
+accepted your saved session. This check creates no recording. A saved session
+on its own is not proof that Plaud accepts it.
 
-It's the same pipeline as `npm run import`, just driven from a page. It runs
-**only on your machine**: it binds to loopback (`127.0.0.1`), every action is
-gated behind a per-run token the page carries so another site in your browser
-can't drive it, and the bearer token itself is never sent to the page — only
-when it expires. Keep `PLAUDPORT_HOST` on `127.0.0.1`; this page can upload to
-your Plaud, so it must not be reachable off your machine. Gong downloads still
-go through the `npm run import` command.
+You can also launch without automatically opening a browser using `npm run web`,
+then open the address it prints (normally `http://127.0.0.1:4317`).
 
-## A Gong call, or any recording on disk
+## Import a recording
 
-Still the same `import` command. Download the call from Gong (**⋮ → Download**),
-then:
+1. In Plaud, open the shared recording, choose **Share**, and copy its share link.
+2. Paste the full link into PlaudPort. For several recordings, put **one link on
+   each line**.
+3. Click **Import to Plaud**.
+4. Keep the page open while PlaudPort saves the backup and uploads the audio.
+   Each recording has its own progress and result.
 
-```bash
-npm run import -- ~/Downloads/"Acme discovery.mp4" --title "Acme discovery" --date "2026-09-20 14:00"
-```
+To save available audio and text on your Mac without adding a recording to
+Plaud, select **Save a local copy only**. This works without signing in.
 
-It converts MP4/WAV to MP3 (needs ffmpeg), archives it under `data/imports/`,
-and uploads it dated when the call happened. **Pass `--date`**: a download's
-own timestamp is the day you downloaded it, and the command warns you if that's
-all it has. The same file, even renamed, is only ever imported once.
-`~/Downloads/*.mp4` imports several at once. Details, and the plan for fetching
-from Gong automatically, are in `docs/GONG.md`.
+Recordings already imported through PlaudPort are normally skipped. Creating an
+additional copy is an optional setting under **Advanced options**.
 
-## The migration spike
+## Find your results
 
-For the migration spike (needs your own token):
+- **Imported:** the audio is in your Plaud Personal workspace. Use **Open Plaud**
+  and find it by its title and original recording date. The link opens Plaud's
+  home page, not a recording-specific page.
+- **Already imported:** PlaudPort found its previous import and avoided making
+  another copy.
+- **Saved on this Mac:** your local backup is available, but no new recording
+  was added to Plaud.
+- **Needs attention:** read the message on that recording's card. After fixing
+  the problem, choose **Retry unsuccessful recordings**; successful items are
+  not submitted again.
 
-```bash
-cp .env.example .env       # then fill PLAUD_API_BASE + PLAUD_TOKEN
-npm run hooks:install      # optional: pre-commit secret check
-npm run spike              # read-only probes; writes data/spike-report.json
-```
+**Show backup in Finder** opens that recording's backup folder. Look for
+`recording.md` to read its available transcript and summary, or `audio.mp3` for
+the audio. Backups are under `data/shares/` inside your PlaudPort folder.
 
-## Configuration
-All settings come from the environment; `.env.example` is the template.
+If a share has no accessible audio, PlaudPort saves the text it can retrieve and
+explains that result. Technical logs are available under **Technical details**.
+Result cards are kept only for the current page session; the files remain on
+disk after you close the page.
 
-| Variable | Required | Default | Purpose |
-|---|---|---|---|
-| `PLAUD_API_BASE` | yes | — | Origin + path prefix of the Plaud web API |
-| `PLAUD_TOKEN` | yes | — | Bearer token from web.plaud.ai (**secret**) |
-| `PLAUD_USER_TOKEN` | for upload | — | `x-pld-user` header from a signed-in session (**secret**) |
-| `PLAUD_DEVICE_ID` | for upload | generated | `x-device-id` from that same session |
-| `PLAUD_AUTH` | maybe | — | `Authorization` header, if Plaud sends one (**secret**) |
-| `PLAUD_COOKIE` | maybe | — | `Cookie` header, if Plaud authenticates by cookie (**secret**) |
-| `PLAUD_EXTRA_HEADERS` | no | — | JSON of extra headers, if your account needs them |
-| `PLAUD_ALLOWED_HOSTS` | no | Plaud web/api/resource + both S3 buckets | SSRF guard for every outbound call |
-| `PLAUD_DATA_DIR` | no | `./data` | Where backups, ledger, and reports are written (gitignored) |
-| `PLAUD_REQUEST_TIMEOUT_MS` | no | `30000` | Per-request timeout |
-| `PLAUD_REDACT_SAMPLES` | no | `true` | Strip string values out of report samples |
-| `PLAUD_ALLOW_WRITE_TEST` | no | `false` | Unlocks the guarded M0 write test |
+When finished, press **Control-C** in the PlaudPort Terminal window to stop it.
+Closing the browser page alone does not stop the server.
 
-Later milestones add a few more (local UI bind/port, concurrency, backup
-freshness); they're listed and commented out at the bottom of `.env.example`.
+## When something goes wrong
 
-## Scripts
-| Command | What it does |
+| What you see | What to do |
 |---|---|
-| `npm run probe:share -- "<link>"` | Report what a public share link exposes |
-| `npm run import -- "<link>" \| <links.txt> \| <call.mp4>` | **Archive + import.** Share links, a file of them, recordings on disk (e.g. Gong downloads), or a mix |
-| `npm run web` | Local web page: paste a link, click Import, watch progress (loopback only) |
-| `npm run import:audio -- --from-share <dir>` | Upload an already-archived recording (lower level) |
-| `npm run fetch:share -- "<link>"` | Archive only, without uploading (lower level) |
-| `npm run check:auth` | Check your upload credentials, and when they expire |
-| `npm run chrome:install` | Set up automatic credential sync from Chrome (macOS; one-time extension setup) |
-| `npm run test:chrome` | Test the Chrome extension and native helper without a Plaud account |
-| `npm run set:auth` | Manual fallback: update the bearer token from the clipboard |
-| `npm run fetch:audio -- --from-scan` | Download audio found by `scan:har` (fallback route) |
-| `npm run scan:har -- <file.har>` | Derive the endpoint map from a DevTools HAR export |
-| `npm run scan:upload -- <file.har>` | Work out how the web app uploads audio (for the import step) |
-| `npm run scan:curl` | Describe a "Copy as cURL" request from the clipboard, values masked |
-| `npm run demo` | End-to-end self-test with a fake share page — no Plaud needed |
-| `npm test` | Unit tests |
-| `npm run spike` | M0 read-only probes → `data/spike-report.json` |
-| `npm run typecheck` | `tsc --noEmit` |
-| `npm run check:secrets` | Fails if secrets or Plaud data are tracked by git |
-| `npm run hooks:install` | Installs the secret check as a pre-commit hook |
+| Connect your Plaud account / session expired | Open Plaud in Chrome, sign in to Personal, reload Plaud, then click **Refresh session** and **Check connection** in PlaudPort. |
+| Green extension badge, but connection not verified | The badge confirms a local save. **Check connection** verifies the session with Plaud. |
+| Orange **!** on the extension | Click its icon for a diagnostic message. See the [Chrome troubleshooting guide](docs/CHROME-AUTH.md#troubleshooting). |
+| Browser cannot reach PlaudPort | Start the launcher again and keep its Terminal window running. |
+| Address already in use | Another server is using that address. Use the existing PlaudPort tab if it is already running, or stop the other server and relaunch. |
+| Progress connection interrupted | Keep the page open while it reconnects. The import may still be running; avoid submitting the same links again. |
+| A recording needs attention | Read its card, fix the issue, then retry unsuccessful recordings. |
 
-## Roadmap
-- Share import: `docs/PRD-SHARE-IMPORT.md` §9. Done through **S4** — fetch,
-  archive, upload (verified live), and a local web UI (`npm run web`).
-- Migration: `docs/PRD.md` §9. The upload flow discovered here is the same one
-  M0 needed, so that gate is now answerable.
+The Plaud session usually expires after about a day. If Chrome has been idle,
+reload your signed-in Plaud page before importing. This tool does not sign in
+for you when Chrome is closed or your Plaud session has ended.
 
-Still open on both: attaching an original transcript to an uploaded recording.
-No endpoint for it has been observed.
+## Updating PlaudPort
 
-## Testing
-`npm run demo` proves the whole pipeline on your own machine in 30 seconds,
-without a Plaud account. See `docs/TESTING.md` for all three levels.
+After updating your project files:
 
-## Contributing
-See `CONTRIBUTING.md`. Endpoint findings are the most useful contribution — as
-paths and shapes, never as real ids or content.
+1. Run `npm install` in your PlaudPort folder.
+2. Run `npm run chrome:install` to update the installed helper copy. Also do this
+   after upgrading Node.js.
+3. At `chrome://extensions`, click the extension's **reload ↻** button.
+4. Stop the running PlaudPort server with Control-C and start the launcher again.
+5. Reload Plaud in Chrome, then check the connection in PlaudPort.
 
-## License
-MIT — see `LICENSE`.
+## Other uses and technical information
+
+- **Gong downloads and audio/video files:** supported through Terminal, not yet
+  through the web page. See the [terminal guide](docs/CLI.md) and [Gong guide](docs/GONG.md).
+  Conversion of non-MP3 files requires FFmpeg; the Gong guide covers setup.
+- **Team migration:** experimental research, not an everyday user feature.
+  See the [migration plan](docs/PRD.md).
+- **Configuration, scripts, and roadmap:** [Advanced documentation](docs/ADVANCED.md).
+- **Chrome helper details and removal:** [Chrome setup guide](docs/CHROME-AUTH.md).
+- **Testing and contributing:** [Testing](docs/TESTING.md) · [Contributing](CONTRIBUTING.md).
+
+PlaudPort runs on your Mac. Recordings travel only between your Mac and Plaud;
+there is no hosted PlaudPort service. Credentials stay in an owner-only file in
+`~/Library/Application Support/PlaudPort/`, and your local backups are excluded
+from Git. This is an unofficial integration that may need updates when Plaud
+changes. See [Security](SECURITY.md) for details.
+
+Chrome credential capture, authentication, and a share-link import were verified
+live on 2026-10-17. The web UI uses the same import pipeline as the Terminal commands.
+
+MIT license — see [LICENSE](LICENSE).
