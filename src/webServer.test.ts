@@ -163,6 +163,53 @@ test("API refuses a non-loopback Host header", async () => {
   }
 });
 
+test("a malformed request target returns 400 and keeps the server up", async () => {
+  const token = "abc123def456";
+  const server = mod.createServer(token, undefined, { envPath: noEnv });
+  const port = await listen(server);
+  try {
+    // "//[" makes `new URL` throw; before the fix that crashed the whole server.
+    const bad = await new Promise<number>((resolve, reject) => {
+      const r = httpRequest({ host: "127.0.0.1", port, path: "//[", method: "GET" }, (res) => {
+        res.resume();
+        res.on("end", () => resolve(res.statusCode ?? 0));
+      });
+      r.on("error", reject);
+      r.end();
+    });
+    assert.equal(bad, 400);
+    // The server is still answering afterwards.
+    const alive = await fetch(`http://127.0.0.1:${port}/`);
+    assert.equal(alive.status, 200);
+  } finally {
+    server.close();
+  }
+});
+
+test("refreshCachedCredentials re-reads the user token and adopts a configured device id", async () => {
+  const { requireUserToken, getDeviceId, refreshCachedCredentials } = await import("./config.js");
+  const savedTok = process.env.PLAUD_USER_TOKEN;
+  const savedDev = process.env.PLAUD_DEVICE_ID;
+  try {
+    process.env.PLAUD_USER_TOKEN = "user-token-aaaa";
+    refreshCachedCredentials();
+    assert.equal(requireUserToken(), "user-token-aaaa");
+    // A later env change is NOT seen until the cache is refreshed…
+    process.env.PLAUD_USER_TOKEN = "user-token-bbbb";
+    assert.equal(requireUserToken(), "user-token-aaaa", "stays cached until refreshed");
+    refreshCachedCredentials();
+    assert.equal(requireUserToken(), "user-token-bbbb", "re-read after refresh");
+    // …and a newly-configured device id is adopted.
+    process.env.PLAUD_DEVICE_ID = "device-configured-1234";
+    refreshCachedCredentials();
+    assert.equal(getDeviceId(), "device-configured-1234");
+  } finally {
+    process.env.PLAUD_USER_TOKEN = savedTok;
+    process.env.PLAUD_DEVICE_ID = savedDev;
+    refreshCachedCredentials();
+  }
+});
+
 test("the page embeds the token and never the bearer", async () => {
   const token = "abc123def456";
   const server = mod.createServer(token, undefined, { envPath: noEnv });

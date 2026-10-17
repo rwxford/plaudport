@@ -1,5 +1,5 @@
 import { archiveShare } from "./archive.js";
-import { config } from "./config.js";
+import { config, refreshCachedCredentials } from "./config.js";
 import { humanDuration } from "./format.js";
 import { importArchive } from "./importer.js";
 import { parseLinkList } from "./linkList.js";
@@ -184,8 +184,10 @@ export async function runImport(jobs: Jobs, job: Job, req: ImportRequest, locks 
   const outcomes: Outcome[] = [];
 
   if (!req.fetchOnly) {
-    // Pick up a token refreshed by `npm run set:auth` since this server started.
+    // Pick up a token refreshed by `npm run set:auth` since this server started,
+    // and drop cached session headers so they can't lag behind the new bearer.
     reloadCredentialsFromEnvFile(envPath);
+    refreshCachedCredentials();
     try {
       assertTokenUsable();
     } catch (e) {
@@ -299,10 +301,19 @@ export function createServer(sessionToken: string, jobs = new Jobs(), opts: { en
   const envPath = opts.envPath ?? ".env";
   const locks = opts.locks ?? new KeyedMutex();
   return createHttpServer(async (req, res) => {
-    const url = new URL(req.url ?? "/", "http://localhost");
-    const path = url.pathname;
-
     try {
+      // Parse inside the try: a malformed request target (e.g. "//[") throws in
+      // the URL constructor, and before this was in the handler's scope it took
+      // the whole server down with an uncaught exception.
+      let url: URL;
+      try {
+        url = new URL(req.url ?? "/", "http://localhost");
+      } catch {
+        sendJson(res, 400, { error: "Bad request target." });
+        return;
+      }
+      const path = url.pathname;
+
       // Loopback gate first, before anything is served — the page carries the
       // session token, so a non-loopback Host (DNS-rebinding) must not get it.
       if (!isLoopbackHost(req.headers.host)) {
@@ -328,6 +339,7 @@ export function createServer(sessionToken: string, jobs = new Jobs(), opts: { en
         if (req.method === "GET" && path === "/api/auth") {
           // Reflect a token refreshed since startup (npm run set:auth).
           reloadCredentialsFromEnvFile(envPath);
+          refreshCachedCredentials();
           sendJson(res, 200, authStatus());
           return;
         }

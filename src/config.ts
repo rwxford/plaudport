@@ -131,6 +131,20 @@ export function getDeviceId(): string {
   return deviceId;
 }
 
+/**
+ * Drop the memoized user token (and adopt a newly-configured device id) so the
+ * next request re-reads them from the environment. The web UI calls this when it
+ * reloads credentials mid-run: otherwise a refreshed Authorization header would
+ * ride alongside a stale `x-pld-user` / `x-device-id` from before the refresh.
+ * A generated device id is kept as-is — only an explicitly configured one is
+ * adopted — so this never silently changes the device identity on each reload.
+ */
+export function refreshCachedCredentials(): void {
+  cachedUserToken = null;
+  const configured = unwrapValue(process.env.PLAUD_DEVICE_ID ?? "");
+  if (configured) deviceId = configured;
+}
+
 export function requireUserToken(): string {
   if (cachedUserToken) return cachedUserToken;
   const token = unwrapValue(process.env.PLAUD_USER_TOKEN ?? "");
