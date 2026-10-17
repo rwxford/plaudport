@@ -69,3 +69,27 @@ export function loadEnvFile(path = ".env"): void {
     if (process.env[key] === undefined || process.env[key] === "") process.env[key] = value;
   }
 }
+
+/** Credentials a `set:auth` or a fresh capture rewrites in `.env`. */
+export const CREDENTIAL_KEYS = ["PLAUD_AUTH", "PLAUD_USER_TOKEN", "PLAUD_DEVICE_ID", "PLAUD_COOKIE"] as const;
+
+/**
+ * Re-read the credential lines from `.env`, overwriting process.env.
+ *
+ * Unlike `loadEnvFile`, this clobbers: a long-running process (the web UI) that
+ * loaded a token at startup must pick up a newer one written by `npm run set:auth`
+ * without a restart. Scoped to the credential keys so it can't disturb unrelated
+ * settings, and a no-op when the file or those keys are absent.
+ */
+export function reloadCredentialsFromEnvFile(path = ".env"): void {
+  if (!existsSync(path)) return;
+  let parsed: Record<string, string>;
+  try {
+    parsed = parseEnv(readFileSync(path, "utf8"));
+  } catch {
+    return;
+  }
+  for (const key of CREDENTIAL_KEYS) {
+    if (parsed[key] !== undefined) process.env[key] = parsed[key];
+  }
+}

@@ -4,7 +4,7 @@ import { humanDuration } from "./format.js";
 import { importArchive } from "./importer.js";
 import { parseLinkList } from "./linkList.js";
 import { readTokenExpiry } from "./jwt.js";
-import { unwrapValue } from "./env.js";
+import { reloadCredentialsFromEnvFile, unwrapValue } from "./env.js";
 import { parseShareUrl, ShareUrlError } from "./shareUrl.js";
 import { assertTokenUsable, UploadError } from "./uploadClient.js";
 import { ShareApiError } from "./shareClient.js";
@@ -150,14 +150,39 @@ function sendSse(res: ServerResponse, event: string, data: unknown): void {
 }
 
 /**
+ * Serialize work that shares a key, so two jobs can't race the same share:
+ * archiving writes the same files and the duplicate check reads a manifest the
+ * other job is about to write. Distinct shares still run concurrently.
+ */
+export class KeyedMutex {
+  private readonly tails = new Map<string, Promise<unknown>>();
+
+  run<T>(key: string, fn: () => Promise<T>): Promise<T> {
+    const prev = this.tails.get(key) ?? Promise.resolve();
+    const result = prev.then(fn, fn); // run after prev whether it resolved or threw
+    const tail = result.catch(() => {}); // a non-rejecting link to chain the next on
+    this.tails.set(key, tail);
+    void tail.then(() => {
+      if (this.tails.get(key) === tail) this.tails.delete(key);
+    });
+    return result;
+  }
+}
+
+/**
  * Run one import job: archive each link, then (unless fetch-only) upload it.
  * Mirrors the CLI's per-link path so the two behave the same.
+ *
+ * `locks` serializes per-share work across all jobs; pass the server's shared
+ * instance so concurrent submissions of the same link can't race.
  */
-export async function runImport(jobs: Jobs, job: Job, req: ImportRequest): Promise<void> {
+export async function runImport(jobs: Jobs, job: Job, req: ImportRequest, locks = new KeyedMutex(), envPath = ".env"): Promise<void> {
   const log = (l: string) => jobs.append(job, l);
   const outcomes: Outcome[] = [];
 
   if (!req.fetchOnly) {
+    // Pick up a token refreshed by `npm run set:auth` since this server started.
+    reloadCredentialsFromEnvFile(envPath);
     try {
       assertTokenUsable();
     } catch (e) {
@@ -186,39 +211,41 @@ export async function runImport(jobs: Jobs, job: Job, req: ImportRequest): Promi
 
     log(`${pos}${ref.shareId}`);
     try {
-      const { dir, manifest, audioError } = await archiveShare(ref, { log: (l) => log(`   ${l.trim()}`) });
-      log(`   ${manifest.title}`);
-      log(`   ${humanDuration(manifest.durationMs ?? undefined)}, ${manifest.counts.utterances} utterances`);
+      // Hold the share's lock across archive AND import, so a second job for the
+      // same link can't interleave file writes or slip past the duplicate check.
+      const outcome = await locks.run(ref.shareId, async (): Promise<Outcome> => {
+        const { dir, manifest, audioError } = await archiveShare(ref, { log: (l) => log(`   ${l.trim()}`) });
+        log(`   ${manifest.title}`);
+        log(`   ${humanDuration(manifest.durationMs ?? undefined)}, ${manifest.counts.utterances} utterances`);
 
-      if (audioError || !manifest.audio) {
-        log(`   NO AUDIO: ${audioError ?? "this share has none"}`);
-        outcomes.push({ url, shareId: ref.shareId, title: manifest.title, status: "archived", detail: audioError });
-        continue;
-      }
-      if (req.fetchOnly) {
-        log("   Archived.");
-        outcomes.push({ url, shareId: ref.shareId, title: manifest.title, status: "archived" });
-        continue;
-      }
+        if (audioError || !manifest.audio) {
+          log(`   NO AUDIO: ${audioError ?? "this share has none"}`);
+          return { url, shareId: ref.shareId, title: manifest.title, status: "archived", detail: audioError };
+        }
+        if (req.fetchOnly) {
+          log("   Archived.");
+          return { url, shareId: ref.shareId, title: manifest.title, status: "archived" };
+        }
 
-      const result = await importArchive({
-        audioPath: join(dir, manifest.audio.file),
-        title: manifest.title,
-        startTime: manifest.recordedAt ? Date.parse(manifest.recordedAt) : Date.now(),
-        shareDir: dir,
-        extraCopy: req.extraCopy,
-        log: (l) => log(`   ${l.trim()}`),
+        const result = await importArchive({
+          audioPath: join(dir, manifest.audio.file),
+          title: manifest.title,
+          startTime: manifest.recordedAt ? Date.parse(manifest.recordedAt) : Date.now(),
+          shareDir: dir,
+          extraCopy: req.extraCopy,
+          log: (l) => log(`   ${l.trim()}`),
+        });
+        log(
+          result.status === "already-imported"
+            ? `   Already in Plaud as ${result.fileIdPrefixed} — skipped`
+            : result.wasAlreadyImported
+              ? `   Imported again as ${result.fileIdPrefixed} (was already in Plaud as ${result.previousFileIdPrefixed})`
+              : `   Imported as ${result.fileIdPrefixed}`,
+        );
+        if (result.status !== "already-imported" && result.checksumMatched === false) log("   WARNING: checksum differs from Plaud's copy.");
+        return { url, shareId: ref.shareId, title: manifest.title, status: result.status, fileId: result.fileIdPrefixed };
       });
-      log(
-        result.status === "already-imported"
-          ? `   Already in Plaud as ${result.fileIdPrefixed} — skipped`
-          : result.wasAlreadyImported
-            ? `   Imported again as ${result.fileIdPrefixed} (was already in Plaud as ${result.previousFileIdPrefixed})`
-            : `   Imported as ${result.fileIdPrefixed}`,
-      );
-      outcomes.push({ url, shareId: ref.shareId, title: manifest.title, status: result.status, fileId: result.fileIdPrefixed });
-
-      if (result.status !== "already-imported" && result.checksumMatched === false) log("   WARNING: checksum differs from Plaud's copy.");
+      outcomes.push(outcome);
     } catch (e) {
       const detail = e instanceof ShareApiError || e instanceof UploadError ? e.message.split("\n")[0]! : String(e);
       log(`   FAILED: ${detail}`);
@@ -265,24 +292,29 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(text);
 }
 
-export function createServer(sessionToken: string, jobs = new Jobs()): Server {
+export function createServer(sessionToken: string, jobs = new Jobs(), opts: { envPath?: string; locks?: KeyedMutex } = {}): Server {
+  const envPath = opts.envPath ?? ".env";
+  const locks = opts.locks ?? new KeyedMutex();
   return createHttpServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     const path = url.pathname;
 
     try {
+      // Loopback gate first, before anything is served — the page carries the
+      // session token, so a non-loopback Host (DNS-rebinding) must not get it.
+      if (!isLoopbackHost(req.headers.host)) {
+        sendJson(res, 403, { error: "This server only answers loopback requests." });
+        return;
+      }
+
       if (req.method === "GET" && path === "/") {
         res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
         res.end(pageHtml(sessionToken));
         return;
       }
 
-      // Everything below is API: loopback + token gated.
+      // Everything below is API: token gated (Host already checked above).
       if (path.startsWith("/api/")) {
-        if (!isLoopbackHost(req.headers.host)) {
-          sendJson(res, 403, { error: "This server only answers loopback requests." });
-          return;
-        }
         // Header for fetch(); query ?t= for EventSource, which cannot set headers.
         const provided = (req.headers["x-plaudport-token"] as string | undefined) ?? url.searchParams.get("t") ?? undefined;
         if (!tokenMatches(sessionToken, provided)) {
@@ -291,6 +323,8 @@ export function createServer(sessionToken: string, jobs = new Jobs()): Server {
         }
 
         if (req.method === "GET" && path === "/api/auth") {
+          // Reflect a token refreshed since startup (npm run set:auth).
+          reloadCredentialsFromEnvFile(envPath);
           sendJson(res, 200, authStatus());
           return;
         }
@@ -304,7 +338,7 @@ export function createServer(sessionToken: string, jobs = new Jobs()): Server {
             return;
           }
           const job = jobs.create();
-          void runImport(jobs, job, parsed).catch((e) => jobs.finish(job, "error", { reason: String(e) }));
+          void runImport(jobs, job, parsed, locks, envPath).catch((e) => jobs.finish(job, "error", { reason: String(e) }));
           sendJson(res, 202, { jobId: job.id });
           return;
         }

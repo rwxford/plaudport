@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer as createHttpServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -32,6 +32,7 @@ function makeWav(): Buffer {
 const AUDIO = makeWav();
 let standIn: Server;
 let dataDir: string;
+let noEnv: string; // a path with no file, so the credential reload is a no-op in tests
 let mod: typeof import("./webServer.js");
 
 before(async () => {
@@ -61,6 +62,7 @@ before(async () => {
   const port = (standIn.address() as AddressInfo).port;
 
   dataDir = mkdtempSync(join(tmpdir(), "plaudport-web-"));
+  noEnv = join(dataDir, "nonexistent.env");
   process.env.PLAUD_ALLOWED_HOSTS = "web.plaud.ai,127.0.0.1";
   process.env.PLAUD_SHARE_API_BASE = `http://127.0.0.1:${port}`;
   process.env.PLAUD_DATA_DIR = dataDir;
@@ -125,7 +127,7 @@ function listen(server: Server): Promise<number> {
 }
 
 test("API refuses a wrong session token", async () => {
-  const server = mod.createServer("abc123def456");
+  const server = mod.createServer("abc123def456", undefined, { envPath: noEnv });
   const port = await listen(server);
   try {
     const r = await fetch(`http://127.0.0.1:${port}/api/auth`, { headers: { "x-plaudport-token": "wrong" } });
@@ -148,7 +150,7 @@ function rawGet(port: number, path: string, headers: Record<string, string>): Pr
 
 test("API refuses a non-loopback Host header", async () => {
   const token = "abc123def456";
-  const server = mod.createServer(token);
+  const server = mod.createServer(token, undefined, { envPath: noEnv });
   const port = await listen(server);
   try {
     const status = await rawGet(port, "/api/auth", { "x-plaudport-token": token, host: "evil.example.com" });
@@ -163,7 +165,7 @@ test("API refuses a non-loopback Host header", async () => {
 
 test("the page embeds the token and never the bearer", async () => {
   const token = "abc123def456";
-  const server = mod.createServer(token);
+  const server = mod.createServer(token, undefined, { envPath: noEnv });
   const port = await listen(server);
   try {
     const html = await (await fetch(`http://127.0.0.1:${port}/`)).text();
@@ -176,7 +178,7 @@ test("the page embeds the token and never the bearer", async () => {
 
 test("a fetch-only import archives the share and streams progress to completion", async () => {
   const token = randomBytes(8).toString("hex");
-  const server = mod.createServer(token);
+  const server = mod.createServer(token, undefined, { envPath: noEnv });
   const port = await listen(server);
   try {
     const start = await fetch(`http://127.0.0.1:${port}/api/import`, {
@@ -205,4 +207,72 @@ test("a fetch-only import archives the share and streams progress to completion"
   } finally {
     server.close();
   }
+});
+
+test("the page is NOT served to a non-loopback Host (token can't leak via rebinding)", async () => {
+  const token = "abc123def456";
+  const server = mod.createServer(token, undefined, { envPath: noEnv });
+  const port = await listen(server);
+  try {
+    const foreign = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+      const r = httpRequest({ host: "127.0.0.1", port, path: "/", method: "GET", headers: { host: "evil.example.com" } }, (res) => {
+        let body = "";
+        res.on("data", (d) => (body += d));
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, body }));
+      });
+      r.on("error", reject);
+      r.end();
+    });
+    assert.equal(foreign.status, 403);
+    assert.ok(!foreign.body.includes(token), "the session token must not be served to a foreign Host");
+  } finally {
+    server.close();
+  }
+});
+
+test("reloadCredentialsFromEnvFile picks up a token rewritten since startup", async () => {
+  const { reloadCredentialsFromEnvFile } = await import("./env.js");
+  const envFile = join(dataDir, "reload.env");
+  const saved = process.env.PLAUD_AUTH;
+  try {
+    process.env.PLAUD_AUTH = `Bearer ${jwt(-60)}`; // stale, as if loaded at startup
+    const fresh = `Bearer ${jwt(3600)}`;
+    writeFileSync(envFile, `PLAUD_AUTH=${fresh}\nUNRELATED=keepme\n`);
+    reloadCredentialsFromEnvFile(envFile);
+    assert.equal(process.env.PLAUD_AUTH, fresh, "credential reloaded from the file, overwriting the stale one");
+    // A missing file is a no-op, not a throw or a wipe.
+    reloadCredentialsFromEnvFile(join(dataDir, "does-not-exist.env"));
+    assert.equal(process.env.PLAUD_AUTH, fresh);
+  } finally {
+    process.env.PLAUD_AUTH = saved;
+  }
+});
+
+test("KeyedMutex serializes the same key and runs different keys concurrently", async () => {
+  const { KeyedMutex } = mod;
+  const m = new KeyedMutex();
+  const order: string[] = [];
+  const gated = (tag: string, ms: number) => () =>
+    new Promise<void>((r) => {
+      order.push(`${tag}:start`);
+      setTimeout(() => {
+        order.push(`${tag}:end`);
+        r();
+      }, ms);
+    });
+
+  // Same key: B must not start until A ends.
+  const a = m.run("k", gated("A", 30));
+  const b = m.run("k", gated("B", 1));
+  await Promise.all([a, b]);
+  assert.deepEqual(order, ["A:start", "A:end", "B:start", "B:end"]);
+
+  // Different keys: both start before either ends.
+  order.length = 0;
+  await Promise.all([m.run("x", gated("X", 20)), m.run("y", gated("Y", 20))]);
+  assert.deepEqual(order.slice(0, 2).sort(), ["X:start", "Y:start"]);
+
+  // A thrown task still releases the key for the next one.
+  await assert.rejects(m.run("z", () => Promise.reject(new Error("boom"))));
+  assert.equal(await m.run("z", () => Promise.resolve("ok")), "ok");
 });
