@@ -209,7 +209,13 @@ export async function runImport(jobs: Jobs, job: Job, req: ImportRequest): Promi
         extraCopy: req.extraCopy,
         log: (l) => log(`   ${l.trim()}`),
       });
-      log(result.status === "already-imported" ? `   Already in Plaud as ${result.fileIdPrefixed} — skipped` : `   Imported as ${result.fileIdPrefixed}`);
+      log(
+        result.status === "already-imported"
+          ? `   Already in Plaud as ${result.fileIdPrefixed} — skipped`
+          : result.wasAlreadyImported
+            ? `   Imported again as ${result.fileIdPrefixed} (was already in Plaud as ${result.previousFileIdPrefixed})`
+            : `   Imported as ${result.fileIdPrefixed}`,
+      );
       outcomes.push({ url, shareId: ref.shareId, title: manifest.title, status: result.status, fileId: result.fileIdPrefixed });
 
       if (result.status !== "already-imported" && result.checksumMatched === false) log("   WARNING: checksum differs from Plaud's copy.");

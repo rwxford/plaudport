@@ -299,6 +299,11 @@ async function main() {
   const partsAfter = [...uploaded.values()].reduce((n, b) => n + b.length, 0);
   check(partsAfter === partsBefore, "and uploaded nothing", `${partsBefore} -> ${partsAfter} bytes`);
 
+  // --extra-copy re-uploads, and says it was already there rather than silently duplicating.
+  const extraCopy = await run(["src/importAudio.ts", "--from-share", shareDir, "--extra-copy"], importEnv);
+  check(/Imported again/.test(extraCopy.out), "an --extra-copy import says it imported again");
+  check(/was already in Plaud as of_demo-file-id/.test(extraCopy.out), "and names the copy that was already there");
+
   // 6b. a recording downloaded from somewhere else (Gong hands out WAV or MP4)
   console.log("\nStep 5: importing a downloaded recording (a stand-in for a Gong WAV)…");
   if (spawnSync("ffmpeg", ["-version"]).error) {

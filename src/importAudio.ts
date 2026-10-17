@@ -129,7 +129,8 @@ async function main() {
       return;
     }
 
-    console.log(`\n  Imported. Plaud file id: ${result.fileIdPrefixed ?? "(not returned)"}`);
+    console.log(`\n  Imported${result.wasAlreadyImported ? " again" : ""}. Plaud file id: ${result.fileIdPrefixed ?? "(not returned)"}`);
+    if (result.wasAlreadyImported) console.log(`  (a copy was already in Plaud as ${result.previousFileIdPrefixed}; --extra-copy made another)`);
     if (result.checksumMatched === true) console.log("  Checksum matches Plaud's copy");
     if (result.checksumMatched === false) console.log("  WARNING: checksum DIFFERS from Plaud's copy");
 

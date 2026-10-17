@@ -37,6 +37,11 @@ export interface ImportResult {
   fileIdPrefixed?: string;
   bytes: number;
   checksumMatched?: boolean;
+  /** A copy was already in Plaud before this call. True for a skip, and for a
+   *  deliberate re-import with extraCopy — so callers can say so either way. */
+  wasAlreadyImported?: boolean;
+  /** The id of that prior copy, when there was one. */
+  previousFileIdPrefixed?: string;
 }
 
 const noop: Logger = () => {};
@@ -51,12 +56,17 @@ export async function importArchive(opts: ImportOptions): Promise<ImportResult> 
   const bytes = statSync(opts.audioPath).size;
 
   const previous = opts.shareDir ? readManifest<ImportRecord>(opts.shareDir) : null;
+  const previousFileIdPrefixed = previous?.importedFileId
+    ? (previous.importedFileIdPrefixed ?? prefixedFileId(previous.importedFileId))
+    : undefined;
   if (previous?.importedFileId && !opts.extraCopy) {
     return {
       status: "already-imported",
       fileId: previous.importedFileId,
-      fileIdPrefixed: previous.importedFileIdPrefixed ?? prefixedFileId(previous.importedFileId),
+      fileIdPrefixed: previousFileIdPrefixed,
       bytes,
+      wasAlreadyImported: true,
+      previousFileIdPrefixed,
     };
   }
 
@@ -110,5 +120,7 @@ export async function importArchive(opts: ImportOptions): Promise<ImportResult> 
     fileIdPrefixed: prefixedFileId(created.id),
     bytes,
     checksumMatched,
+    wasAlreadyImported: Boolean(previousFileIdPrefixed),
+    previousFileIdPrefixed,
   };
 }
