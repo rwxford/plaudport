@@ -53,3 +53,6 @@ npm-debug.log*
 .idea/
 .vscode/
 *.swp
+
+# The extension manifest is public code, not a recording export.
+!chrome-extension/manifest.json

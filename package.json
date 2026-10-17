@@ -22,11 +22,13 @@
     "web": "tsx src/webServer.ts",
     "check:auth": "tsx src/checkAuth.ts",
     "set:auth": "tsx src/setAuth.ts",
-    "test": "tsx --test src/*.test.ts",
+    "test": "tsx --test src/*.test.ts && npm run test:chrome",
     "demo": "node scripts/demo.mjs",
     "typecheck": "tsc --noEmit",
     "check:secrets": "bash scripts/check-no-secrets.sh",
-    "hooks:install": "bash scripts/install-hooks.sh"
+    "hooks:install": "bash scripts/install-hooks.sh",
+    "chrome:install": "node scripts/chrome-auth-install.mjs",
+    "test:chrome": "node --test scripts/chrome-auth.test.mjs"
   },
   "devDependencies": {
     "tsx": "^4.19.0",

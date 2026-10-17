@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "PlaudPort credential sync",
+  "version": "0.1.1",
+  "description": "Keep local PlaudPort credentials current from your signed-in Plaud session.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxBY10ugr8M4Tk2hmELjqR65sS1t0FioSHa1kDs1D2hI5WapfglyPPzQ6/53gaH4JgwJtA3TEAJar6j7vjf9+yoJbkV8VT/QUk9bfrTRed1MvhZSQaGgGuKlBxGxaPMB6EGDl5fTOB+d0Bg+9obVtu5OsC5eAS3Gmz1YXWRoXmnKBzWC9ZBHNP5dVeeKER2lqcoC5W+nZZk66G61DHmPHbdRCjYvS/W88KA9xT3bVY9reqJGGFMNfQt4H40Ba3Iw/OLFR8xBzw/8PQgTeoVmN3IPbVr3yCGluV4SS6Yks2lXKqaxDqN6j/hw/m64TRHZUOBz2ZyNwhdJNV/EEUZQMWwIDAQAB",
+  "permissions": [
+    "webRequest",
+    "nativeMessaging"
+  ],
+  "host_permissions": [
+    "https://web.plaud.ai/*",
+    "https://api.plaud.ai/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "PlaudPort: open Plaud to sync credentials",
+    "default_popup": "popup.html"
+  },
+  "incognito": "not_allowed"
+}

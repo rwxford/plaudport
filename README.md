@@ -88,8 +88,8 @@ One command: archives the meeting locally, then uploads it into your Plaud
 Personal workspace keeping its **original title and recording date**. The same
 command takes a file of links, or any mix — see below.
 
-Uploading needs credentials in `.env` (`docs/UPLOAD-API.md`); archiving needs
-nothing at all, since a share link is its own authorisation. To archive without
+Uploading needs credentials from [Chrome sync](#automatic-credentials-from-chrome)
+or `.env` (`docs/UPLOAD-API.md`); archiving needs nothing at all, since a share link is its own authorisation. To archive without
 uploading, add `--fetch-only`:
 
 ```bash
@@ -135,17 +135,91 @@ recording date. Ten links takes one command and a few minutes.
   summary at the end names the ones that need attention.
 - **The credential is checked once up front**, so an expired token stops the run
   before anything uploads rather than on link 9 of 12. If it expires mid-run, the
-  run stops and says so; refresh with `npm run set:auth` and re-run.
+  run stops and says so; reload your signed-in Plaud page to sync fresh
+  credentials, then re-run. `npm run set:auth` remains the manual fallback.
 - A JSON report of every run lands in `data/runs/`.
 
-**Plaud's bearer token expires after about a day.** Refreshing it is two steps:
-copy the `authorization` value in DevTools, then
+## Automatic credentials from Chrome
+
+On **macOS with Google Chrome**, PlaudPort can capture credentials from your
+signed-in Plaud session automatically. One-time setup replaces daily DevTools
+and token copy/paste. Node.js 20 or newer is required.
+
+### One-time setup
+
+Keep the checkout at a permanent location on your Mac. In Terminal, change into
+that checkout and run:
 
 ```bash
-npm run set:auth        # takes it from your clipboard, checks it, writes .env
+cd /path/to/plaudport
+npm install
+npm run chrome:install
 ```
 
-`npm run check:auth` reports the expiry any time, before you upload anything.
+The installer registers a local helper and prints the full extension directory.
+The helper runs from Application Support so Chrome does not need to execute
+scripts inside macOS-protected Documents folders.
+
+1. In the Chrome **profile you use for Plaud**, open `chrome://extensions`.
+2. Turn on **Developer mode**, click **Load unpacked**, and select the
+   `chrome-extension` folder inside your PlaudPort checkout. Select the folder,
+   not an individual file.
+3. Open Chrome's **Extensions** menu (the puzzle-piece icon) and pin
+   **PlaudPort credential sync** so you can see its badge.
+4. Open [web.plaud.ai](https://web.plaud.ai/), sign in, select your **Personal**
+   workspace, and reload the page. The extension badge should turn green **OK**.
+   Click the toolbar icon for status and diagnostics; it never displays tokens.
+5. Back in the same Terminal directory, verify the credentials:
+
+   ```bash
+   npm run check:auth
+   ```
+
+   Look for **Authenticated.** The check requests and discards an upload target;
+   it does not add a recording to Plaud. The green badge confirms a local save,
+   while this command confirms that Plaud accepts the saved credentials.
+
+### Import and everyday use
+
+Once authenticated, import a single share link with:
+
+```bash
+npm run import -- "https://web.plaud.ai/s/pub_…::…"
+```
+
+Replace the example with the full share URL. The import archives the recording
+locally and uploads it to your Personal workspace, preserving its title and date.
+While you use Plaud in Chrome, new authenticated requests keep the saved
+credentials current without copy/paste.
+
+Credentials are stored with owner-only permissions in
+`~/Library/Application Support/PlaudPort/chrome-auth.env`, outside the repository.
+PlaudPort reads that file automatically. These Chrome credentials override the
+same keys in `.env`; explicit shell environment variables still take precedence.
+Use the extension only in the intended Chrome profile and Plaud workspace,
+since the last captured session supplies the next import's credentials.
+
+The bearer expires after about a day. If Chrome has been idle, **reload Plaud
+before importing**. If Plaud has signed you out, sign back in. Chrome must be
+running with a signed-in session; this does not perform unattended SSO renewal.
+
+### Updates and troubleshooting
+
+- After updating the helper code or upgrading Node.js, rerun
+  `npm run chrome:install` to refresh the installed helper copy.
+- After updating extension files, open `chrome://extensions` and click the
+  extension's **reload ↻** icon, then reload Plaud.
+- If the badge shows **!**, click the extension icon for its diagnostic message.
+  For `HOST_EXITED` with an older installation, rerun `npm run chrome:install`
+  to move the helper into Application Support, then reload Plaud.
+- If your organization blocks unpacked extensions or native messaging, the
+  manual fallback remains available: copy the `authorization` value from
+  DevTools and run `npm run set:auth`. Remove or disable the Chrome credential
+  store first if you want the manual `.env` value to take precedence.
+
+See [Chrome setup, troubleshooting, and removal](docs/CHROME-AUTH.md) for details.
+Verified live on 2026-10-17 with automatic capture, successful authentication,
+and a successful share-link import.
 
 ## A web page instead of the terminal
 
@@ -223,7 +297,9 @@ freshness); they're listed and commented out at the bottom of `.env.example`.
 | `npm run import:audio -- --from-share <dir>` | Upload an already-archived recording (lower level) |
 | `npm run fetch:share -- "<link>"` | Archive only, without uploading (lower level) |
 | `npm run check:auth` | Check your upload credentials, and when they expire |
-| `npm run set:auth` | Update the expiring bearer token from the clipboard |
+| `npm run chrome:install` | Set up automatic credential sync from Chrome (macOS; one-time extension setup) |
+| `npm run test:chrome` | Test the Chrome extension and native helper without a Plaud account |
+| `npm run set:auth` | Manual fallback: update the bearer token from the clipboard |
 | `npm run fetch:audio -- --from-scan` | Download audio found by `scan:har` (fallback route) |
 | `npm run scan:har -- <file.har>` | Derive the endpoint map from a DevTools HAR export |
 | `npm run scan:upload -- <file.har>` | Work out how the web app uploads audio (for the import step) |
