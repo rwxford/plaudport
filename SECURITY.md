@@ -1,7 +1,7 @@
 # Security
 
 PlaudPort runs on your own machine, against your own Plaud account, using a
-token that grants full access to that account for months. Treat it accordingly.
+session credentials that grant full access to that account. Treat it accordingly.
 
 ## What must never enter this repository
 
@@ -19,7 +19,8 @@ Everything the tool produces is written under `PLAUD_DATA_DIR` (default
 
 ## Handling your token
 
-- Capture it as described in `docs/ENDPOINTS.md` and put it in `.env`.
+- Sync current credentials from Chrome as described in `docs/CHROME-AUTH.md`,
+  or capture them manually as described in `docs/ENDPOINTS.md`.
 - From M1 onward it belongs in the macOS Keychain; `.env` is the M0 stopgap.
 - It is not scoped or read-only — anyone holding it can read and modify your
   entire Plaud account. Rotate it (log out on web.plaud.ai, sign back in) if you
@@ -51,3 +52,29 @@ These are enforced in code, not just documented (see `docs/PRD.md` §8):
 PlaudPort talks to Plaud's undocumented web API because no public one exists. It
 acts as you, on your own data, at human-ish rates. It may break without notice.
 You are responsible for your own use of it under Plaud's terms of service.
+
+## Chrome credential sync
+
+The optional Manifest V3 extension observes only `https://api.plaud.ai/file/*`
+requests initiated by `https://web.plaud.ai`. It forwards only `authorization`,
+`x-pld-user` and `x-device-id` from a single request through Chrome native
+messaging to the local helper. It does not forward cookies, request URLs,
+request bodies, recordings or transcripts. It has no content scripts, browser
+storage, external messaging, or listening network port. Captured credentials
+exist in extension memory until the worker stops, never in extension storage.
+
+The helper accepts only the extension's fixed origin. Its destination is the
+Mac's `~/Library/Application Support/PlaudPort/chrome-auth.env`, fixed at installation, never a path from a browser message.
+It rejects expired or malformed JWTs, unsafe header characters and symlinked
+credential files; it replaces the file atomically with mode `0600` under a
+writer lock. JWT inspection checks format and expiry, **not** the signature or
+whether Plaud accepts the session: use `npm run check:auth` for that check.
+Responses and extension status contain no credential values. Temporary credential files and locks stay alongside that private store.
+
+The helper runtime is copied into Application Support, so Chrome need not run
+scripts inside protected Documents folders. Chrome's host manifest and launcher contain local paths and the public
+extension ID, not credentials. The extension manifest's `key` is a **public**
+key used for a stable extension ID. No private signing key is retained. Load the
+extension only in the Chrome profile used for the intended Plaud account and
+workspace. Anyone with access to your macOS account can read its credential store and `.env`; this
+integration does not protect against a compromised local user account.

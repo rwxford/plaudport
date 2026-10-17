@@ -135,14 +135,28 @@ recording date. Ten links takes one command and a few minutes.
   run stops and says so; refresh with `npm run set:auth` and re-run.
 - A JSON report of every run lands in `data/runs/`.
 
-**Plaud's bearer token expires after about a day.** Refreshing it is two steps:
-copy the `authorization` value in DevTools, then
+**Automatic credentials from Chrome (macOS):** install the local helper once:
 
 ```bash
-npm run set:auth        # takes it from your clipboard, checks it, writes .env
+npm run chrome:install
 ```
 
-`npm run check:auth` reports the expiry any time, before you upload anything.
+Then load `chrome-extension/` as an unpacked extension at `chrome://extensions`
+(with Developer mode enabled). Open your **Personal** workspace at
+[web.plaud.ai](https://web.plaud.ai/) and reload. A green **OK** badge means the
+current authorization, user and device headers were saved to this Mac's
+private credential store in Application Support. New Plaud requests keep them
+current without copy/paste. Verified live with an authenticated check and a
+successful share-link import on 2026-10-17.
+See [Chrome setup and troubleshooting](docs/CHROME-AUTH.md).
+
+The bearer still expires after about a day. If Plaud has signed you out, sign
+back in; if Chrome has been idle, reload Plaud before importing. This captures
+a session supplied by Plaud; it does not renew a signed-out session unattended.
+`npm run check:auth` checks the saved credentials against Plaud.
+
+The manual fallback is still available: copy the `authorization` value in
+DevTools and run `npm run set:auth` to take it from your clipboard.
 
 ## A Gong call, or any recording on disk
 
@@ -199,7 +213,9 @@ freshness); they're listed and commented out at the bottom of `.env.example`.
 | `npm run import:audio -- --from-share <dir>` | Upload an already-archived recording (lower level) |
 | `npm run fetch:share -- "<link>"` | Archive only, without uploading (lower level) |
 | `npm run check:auth` | Check your upload credentials, and when they expire |
-| `npm run set:auth` | Update the expiring bearer token from the clipboard |
+| `npm run chrome:install` | Set up automatic credential sync from Chrome (macOS; one-time extension setup) |
+| `npm run test:chrome` | Test the Chrome extension and native helper without a Plaud account |
+| `npm run set:auth` | Manual fallback: update the bearer token from the clipboard |
 | `npm run fetch:audio -- --from-scan` | Download audio found by `scan:har` (fallback route) |
 | `npm run scan:har -- <file.har>` | Derive the endpoint map from a DevTools HAR export |
 | `npm run scan:upload -- <file.har>` | Work out how the web app uploads audio (for the import step) |

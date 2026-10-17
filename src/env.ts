@@ -1,4 +1,6 @@
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 /**
  * Minimal .env loading.
@@ -56,16 +58,33 @@ export function unwrapValue(value: string): string {
   return v;
 }
 
-/** Load `.env` into process.env without clobbering anything already set. */
+/** Current Chrome credentials override stale local copies; explicit shell values win. */
+export function mergeEnvironment(
+  explicit: Record<string, string | undefined>,
+  local: Record<string, string>,
+  chrome: Record<string, string>,
+): Record<string, string> {
+  const merged = { ...local };
+  for (const key of ["PLAUD_AUTH", "PLAUD_USER_TOKEN", "PLAUD_DEVICE_ID"]) {
+    if (chrome[key]) merged[key] = chrome[key]!;
+  }
+  for (const [key, value] of Object.entries(explicit)) {
+    if (value !== undefined && value !== "") merged[key] = value;
+  }
+  return merged;
+}
+
+function readSettings(path: string): Record<string, string> {
+  try { return parseEnv(readFileSync(path, "utf8")); }
+  catch { return {}; }
+}
+
+/** Load local settings and the optional macOS Chrome credential store. */
 export function loadEnvFile(path = ".env"): void {
-  if (!existsSync(path)) return;
-  let contents: string;
-  try {
-    contents = readFileSync(path, "utf8");
-  } catch {
-    return;
-  }
-  for (const [key, value] of Object.entries(parseEnv(contents))) {
-    if (process.env[key] === undefined || process.env[key] === "") process.env[key] = value;
-  }
+  const local = readSettings(path);
+  const chrome = process.platform === "darwin" && path === ".env"
+    ? readSettings(join(homedir(), "Library/Application Support/PlaudPort/chrome-auth.env"))
+    : {};
+  const merged = mergeEnvironment(process.env, local, chrome);
+  for (const [key, value] of Object.entries(merged)) process.env[key] = value;
 }
