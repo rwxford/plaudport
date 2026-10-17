@@ -209,6 +209,29 @@ test("a fetch-only import archives the share and streams progress to completion"
   }
 });
 
+test("a subscriber connecting after the job finishes still gets the summary", async () => {
+  const token = randomBytes(8).toString("hex");
+  const server = mod.createServer(token, undefined, { envPath: noEnv });
+  const port = await listen(server);
+  try {
+    const start = await fetch(`http://127.0.0.1:${port}/api/import`, {
+      method: "POST",
+      headers: { "x-plaudport-token": token, "content-type": "application/json" },
+      body: JSON.stringify({ links: "https://web.plaud.ai/s/pub_00000000-0000-4000-8000-000000000000::demotoken", fetchOnly: true }),
+    });
+    const { jobId } = (await start.json()) as { jobId: string };
+
+    // Let the fetch-only job finish before connecting, so this is the late path.
+    await new Promise((r) => setTimeout(r, 300));
+    const events = await fetch(`http://127.0.0.1:${port}/api/jobs/${jobId}/events?t=${token}`);
+    const text = await events.text();
+    assert.ok(/event: done/.test(text), `got a done event:\n${text}`);
+    assert.ok(/"archived":1/.test(text), `late subscriber still gets the summary counts:\n${text}`);
+  } finally {
+    server.close();
+  }
+});
+
 test("the page is NOT served to a non-loopback Host (token can't leak via rebinding)", async () => {
   const token = "abc123def456";
   const server = mod.createServer(token, undefined, { envPath: noEnv });
@@ -243,6 +266,11 @@ test("reloadCredentialsFromEnvFile picks up a token rewritten since startup", as
     // A missing file is a no-op, not a throw or a wipe.
     reloadCredentialsFromEnvFile(join(dataDir, "does-not-exist.env"));
     assert.equal(process.env.PLAUD_AUTH, fresh);
+    // An empty credential line (the Chrome-sync .env shape) must NOT wipe a live
+    // value — otherwise /api/auth would report "no token" and an import would stop.
+    writeFileSync(envFile, `PLAUD_AUTH=\nPLAUD_USER_TOKEN=\n`);
+    reloadCredentialsFromEnvFile(envFile);
+    assert.equal(process.env.PLAUD_AUTH, fresh, "empty .env line left the live credential intact");
   } finally {
     process.env.PLAUD_AUTH = saved;
   }

@@ -106,6 +106,8 @@ interface Job {
   lines: string[];
   listeners: Set<ServerResponse>;
   startedAt: number;
+  /** Kept so a browser connecting after the job ends still gets the counts. */
+  summary?: unknown;
 }
 
 interface Outcome {
@@ -137,6 +139,7 @@ export class Jobs {
 
   finish(job: Job, status: Exclude<JobStatus, "running">, summary: unknown): void {
     job.status = status;
+    job.summary = summary;
     for (const res of job.listeners) {
       sendSse(res, "done", { status, summary });
       res.end();
@@ -353,7 +356,8 @@ export function createServer(sessionToken: string, jobs = new Jobs(), opts: { en
           res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive" });
           for (const line of job.lines) sendSse(res, "log", { line });
           if (job.status !== "running") {
-            sendSse(res, "done", { status: job.status });
+            // Replay the stored summary so a late subscriber still gets the counts.
+            sendSse(res, "done", { status: job.status, summary: job.summary });
             res.end();
             return;
           }
