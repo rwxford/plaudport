@@ -123,7 +123,7 @@ export function convertToMp3(src: string, dest: string): void {
   if (r.status !== 0) {
     rmSync(partial, { force: true });
     const stderr = (r.stderr || String(r.error ?? "")).trim();
-    if (/Stream map '0:a:0' matches no streams/.test(stderr)) {
+    if (/Stream map '(?:0:a:0)?' matches no streams/.test(stderr)) {
       throw new MediaError(`${basename(src)} has no audio track, so there is nothing to import.`);
     }
     // ffmpeg's last line is usually a generic "Error opening output files"; the

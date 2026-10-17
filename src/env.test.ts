@@ -1,4 +1,4 @@
-import { parseEnv, unwrapValue } from "./env.js";
+import { parseEnv, unwrapValue, mergeEnvironment } from "./env.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -50,4 +50,12 @@ test("unwrapValue leaves legitimate values alone", () => {
   assert.equal(unwrapValue("abc>def"), "abc>def");
   assert.equal(unwrapValue("<notclosed"), "<notclosed");
   assert.equal(unwrapValue(""), "");
+});
+
+
+test("current Chrome credentials override local credentials, but explicit shell values win", () => {
+  const result = mergeEnvironment({ PLAUD_AUTH: "shell-value", PLAUD_DEVICE_ID: "" },
+    { PLAUD_AUTH: "stale-value", PLAUD_DEVICE_ID: "old-device", FOO: "keep" },
+    { PLAUD_AUTH: "chrome-value", PLAUD_USER_TOKEN: "chrome-user", PLAUD_DEVICE_ID: "chrome-device", FOO: "ignore", PLAUD_COOKIE: "ignore" });
+  assert.deepEqual(result, { PLAUD_AUTH: "shell-value", PLAUD_DEVICE_ID: "chrome-device", FOO: "keep", PLAUD_USER_TOKEN: "chrome-user" });
 });

@@ -179,7 +179,7 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
     // -419 is Plaud's expired-session code; the bearer lasts roughly a day.
     const hint =
       parsed.status === -419 || /expired/i.test(message)
-        ? "Your PLAUD_AUTH has expired. Copy a fresh `authorization` value from DevTools into .env.\n" +
+        ? "Your PLAUD_AUTH has expired. Reload Plaud in Chrome with credential sync enabled, then re-run.\n" +
           "Plaud's bearer token lasts about 24 hours. `npm run check:auth` shows the expiry before you upload."
         : parsed.status === -3900
           ? "The Authorization header is malformed — check for stray brackets or quotes around the value."
@@ -200,7 +200,7 @@ export function assertTokenUsable(): void {
   if (expiry?.expired) {
     throw new UploadError(
       `PLAUD_AUTH expired ${expiry.relative} (${expiry.expiresAt.toISOString().replace("T", " ").slice(0, 16)} UTC).`,
-      "Copy a fresh `authorization` value from DevTools into .env. Plaud's lasts about 24 hours.",
+      "Reload Plaud in Chrome with credential sync enabled, or use `npm run set:auth`. See docs/CHROME-AUTH.md.",
     );
   }
 }

@@ -189,6 +189,15 @@ shows a masked string with its length (`<masked:36>`) but a masked number withou
 one (`<masked>`). That distinction is the only hint in the capture that
 `session_id` is numeric.
 
+## Automatic credentials from Chrome
+
+Use [Chrome credential sync](CHROME-AUTH.md) to save the authorization,
+`x-pld-user` and `x-device-id` headers together, directly from a live Plaud
+request into the private Application Support credential store. PlaudPort reads
+it automatically. This replaces daily manual header copying. It does not
+implement the still-unknown token-refresh endpoint: Plaud's web app remains
+responsible for obtaining a current session.
+
 ## Capturing your `x-pld-user`
 
 1. Sign in at web.plaud.ai, open DevTools → **Network**, click around until an
