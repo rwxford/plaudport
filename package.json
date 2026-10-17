@@ -19,6 +19,7 @@
     "import:audio": "tsx src/importAudio.ts",
     "import": "tsx src/importBatch.ts",
     "import:batch": "tsx src/importBatch.ts",
+    "web": "tsx src/webServer.ts",
     "check:auth": "tsx src/checkAuth.ts",
     "set:auth": "tsx src/setAuth.ts",
     "test": "tsx --test src/*.test.ts && npm run test:chrome",

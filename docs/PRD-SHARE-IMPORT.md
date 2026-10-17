@@ -139,6 +139,16 @@ refresh endpoint that has not been captured — see `docs/UPLOAD-API.md`.
   find. An imported recording is audio; transcription is Plaud's to produce, on
   request, at whatever it costs in plan minutes. The share's original transcript
   stays in the local archive and is the fuller record of the two.
-- **S4 — Local web UI.** Paste a link, click Import, watch progress (D4).
+- **S4 — Local web UI.** ✅ `npm run web` serves a loopback page: paste one or
+  more links, optionally Archive-only or Import-again, click Import, watch
+  progress stream over SSE (D4). It reuses the same `archiveShare` → `importArchive`
+  path as the CLI. Guards: binds `127.0.0.1` and rejects non-loopback `Host`
+  headers on **every** request including the page itself (so a DNS-rebinding page
+  can't be served the token), gates every API call behind a per-run token the page
+  embeds, and never sends the bearer to the browser (only its expiry). It reloads
+  the credential from `.env` on each import and auth check, so `npm run set:auth`
+  takes effect without a restart; and it serializes work per share id, so two
+  submissions of the same link can't race the archive or the duplicate check.
+  Tested in `src/webServer.test.ts`.
 - **S5 — HLS support (conditional).** Only if the audio turns out to be segmented;
   needs ffmpeg. Skipped otherwise.

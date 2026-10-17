@@ -88,3 +88,29 @@ export function loadEnvFile(path = ".env"): void {
   const merged = mergeEnvironment(process.env, local, chrome);
   for (const [key, value] of Object.entries(merged)) process.env[key] = value;
 }
+
+/** Credentials a `set:auth` or a fresh capture rewrites in `.env`. */
+export const CREDENTIAL_KEYS = ["PLAUD_AUTH", "PLAUD_USER_TOKEN", "PLAUD_DEVICE_ID", "PLAUD_COOKIE"] as const;
+
+/**
+ * Re-read the credential sources so a long-running process (the web UI) picks up
+ * a token refreshed since startup — by `npm run set:auth` into `.env`, or by the
+ * Chrome extension into its store — without a restart.
+ *
+ * Same source precedence as `loadEnvFile`: the Chrome store wins over `.env`.
+ * Only a non-empty value overwrites, so the empty credential lines a Chrome-sync
+ * `.env` carries can't wipe a live Chrome session, and a credential that lives
+ * only in the process environment (a shell export) is left alone when the files
+ * offer nothing. A no-op when no source provides the key.
+ */
+export function reloadCredentialsFromEnvFile(path = ".env"): void {
+  const local = readSettings(path);
+  const chrome =
+    process.platform === "darwin" && path === ".env"
+      ? readSettings(join(homedir(), "Library/Application Support/PlaudPort/chrome-auth.env"))
+      : {};
+  for (const key of CREDENTIAL_KEYS) {
+    const next = chrome[key] || local[key]; // Chrome wins; empty/absent is ignored
+    if (next) process.env[key] = next;
+  }
+}

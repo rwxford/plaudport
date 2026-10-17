@@ -181,7 +181,7 @@ async function main() {
       if (result.status === "already-imported") {
         console.log(`   Already in Plaud as ${result.fileIdPrefixed} — skipped`);
       } else {
-        console.log(`   Imported as ${result.fileIdPrefixed}${result.checksumMatched === false ? " (CHECKSUM MISMATCH)" : ""}`);
+        console.log(`   Imported${result.wasAlreadyImported ? " again" : ""} as ${result.fileIdPrefixed}${result.wasAlreadyImported ? ` (was already in Plaud as ${result.previousFileIdPrefixed})` : ""}${result.checksumMatched === false ? " (CHECKSUM MISMATCH)" : ""}`);
       }
       outcomes.push({
         url,
