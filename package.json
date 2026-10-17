@@ -5,7 +5,9 @@
   "description": "Local-first tool to import shared Plaud meetings into your Personal workspace, and to back up and consolidate your own Plaud recordings.",
   "license": "MIT",
   "type": "module",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "spike": "tsx src/spike.ts",
     "scan:har": "tsx src/harScan.ts",
@@ -17,6 +19,7 @@
     "import:audio": "tsx src/importAudio.ts",
     "import": "tsx src/importBatch.ts",
     "import:batch": "tsx src/importBatch.ts",
+    "web": "tsx src/webServer.ts",
     "check:auth": "tsx src/checkAuth.ts",
     "set:auth": "tsx src/setAuth.ts",
     "test": "tsx --test src/*.test.ts",

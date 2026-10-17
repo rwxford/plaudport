@@ -36,6 +36,10 @@ const SettingsSchema = z.object({
   PLAUD_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().optional().default(30_000),
   PLAUD_REDACT_SAMPLES: z.string().optional().default("true"),
   PLAUD_ALLOW_WRITE_TEST: z.string().optional().default("false"),
+  // Local web UI (S4). Loopback by default and meant to stay that way — this UI
+  // can trigger uploads to your Plaud, so it must not be reachable off the box.
+  PLAUDPORT_HOST: z.string().optional().default("127.0.0.1"),
+  PLAUDPORT_PORT: z.coerce.number().int().min(1).max(65535).optional().default(4317),
 });
 
 const settings = SettingsSchema.safeParse(process.env);
@@ -81,6 +85,8 @@ export const config = {
   requestTimeoutMs: settings.data.PLAUD_REQUEST_TIMEOUT_MS,
   redactSamples: settings.data.PLAUD_REDACT_SAMPLES !== "false",
   allowWriteTest: settings.data.PLAUD_ALLOW_WRITE_TEST === "true",
+  webHost: settings.data.PLAUDPORT_HOST,
+  webPort: settings.data.PLAUDPORT_PORT,
 
   /**
    * TODO(M0): replace with the real paths captured from DevTools.

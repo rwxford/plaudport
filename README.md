@@ -33,6 +33,9 @@ ask Plaud for afterwards — it does not happen automatically, and it presumably
 draws on your plan's minutes. The share's original transcript is archived locally
 regardless, so nothing is lost either way, but it does not travel into Plaud.
 
+There are now two ways to drive it: the `npm run import` command, and a local
+web page (`npm run web`) that runs the same pipeline from the browser.
+
 **Gong import (phase 1): built, not yet run for real.** Converting a downloaded
 recording and uploading it is tested end to end against a stand-in Plaud
 (`npm run demo`). It uses the same upload path already proven live. It hasn't
@@ -144,6 +147,26 @@ npm run set:auth        # takes it from your clipboard, checks it, writes .env
 
 `npm run check:auth` reports the expiry any time, before you upload anything.
 
+## A web page instead of the terminal
+
+If pasting a link into a terminal isn't your thing:
+
+```bash
+npm run web      # then open http://127.0.0.1:4317
+```
+
+A small page: paste one or more share links, optionally tick **Archive only** or
+**Import again if already there**, click **Import**, and the same archive-and-upload
+runs with progress streaming live. A banner shows whether your token is current.
+
+It's the same pipeline as `npm run import`, just driven from a page. It runs
+**only on your machine**: it binds to loopback (`127.0.0.1`), every action is
+gated behind a per-run token the page carries so another site in your browser
+can't drive it, and the bearer token itself is never sent to the page — only
+when it expires. Keep `PLAUDPORT_HOST` on `127.0.0.1`; this page can upload to
+your Plaud, so it must not be reachable off your machine. Gong downloads still
+go through the `npm run import` command.
+
 ## A Gong call, or any recording on disk
 
 Still the same `import` command. Download the call from Gong (**⋮ → Download**),
@@ -196,6 +219,7 @@ freshness); they're listed and commented out at the bottom of `.env.example`.
 |---|---|
 | `npm run probe:share -- "<link>"` | Report what a public share link exposes |
 | `npm run import -- "<link>" \| <links.txt> \| <call.mp4>` | **Archive + import.** Share links, a file of them, recordings on disk (e.g. Gong downloads), or a mix |
+| `npm run web` | Local web page: paste a link, click Import, watch progress (loopback only) |
 | `npm run import:audio -- --from-share <dir>` | Upload an already-archived recording (lower level) |
 | `npm run fetch:share -- "<link>"` | Archive only, without uploading (lower level) |
 | `npm run check:auth` | Check your upload credentials, and when they expire |
@@ -212,9 +236,8 @@ freshness); they're listed and commented out at the bottom of `.env.example`.
 | `npm run hooks:install` | Installs the secret check as a pre-commit hook |
 
 ## Roadmap
-- Share import: `docs/PRD-SHARE-IMPORT.md` §9. Done through **S2** — fetch,
-  archive and upload. Next: run the upload against live Plaud, then a local web
-  UI so a link can be pasted rather than typed into a terminal.
+- Share import: `docs/PRD-SHARE-IMPORT.md` §9. Done through **S4** — fetch,
+  archive, upload (verified live), and a local web UI (`npm run web`).
 - Migration: `docs/PRD.md` §9. The upload flow discovered here is the same one
   M0 needed, so that gate is now answerable.
 
