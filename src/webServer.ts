@@ -6,11 +6,15 @@ import { parseLinkList } from "./linkList.js";
 import { readTokenExpiry } from "./jwt.js";
 import { reloadCredentialsFromEnvFile, unwrapValue } from "./env.js";
 import { parseShareUrl, ShareUrlError } from "./shareUrl.js";
-import { assertTokenUsable, UploadError } from "./uploadClient.js";
+import { assertTokenUsable, requestUpload, UploadError } from "./uploadClient.js";
 import { ShareApiError } from "./shareClient.js";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer as createHttpServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { join } from "node:path";
+import { join, relative, resolve, isAbsolute } from "node:path";
+import { realpathSync } from "node:fs";
+import { execFile } from "node:child_process";
+import { pageHtml } from "./webPage.js";
+export { pageHtml } from "./webPage.js";
 
 /**
  * A local web page for the share-import pipeline (PRD-SHARE-IMPORT S4): paste a
@@ -100,17 +104,48 @@ export function parseImportRequest(body: unknown): ImportRequest {
 
 type JobStatus = "running" | "done" | "error";
 
+export interface RecordingProgress {
+  index: number;
+  stage: "waiting" | "downloading" | "saved" | "uploading" | "imported" | "already-imported" | "archived" | "failed";
+  title?: string;
+  recordedAt?: string | null;
+  duration?: string;
+  detail?: string;
+  hasBackup?: boolean;
+}
+
+/** Existing archive only; never accept an arbitrary filesystem path from the page. */
+export function safeBackupPath(dir: string, root = config.dataDir): string {
+  const base = realpathSync(resolve(root, "shares"));
+  const target = realpathSync(dir);
+  const rel = relative(base, target);
+  if (!rel || rel === ".." || rel.startsWith("../") || isAbsolute(rel)) throw new RequestError("Backup is not in the archive folder.");
+  return target;
+}
+
+function openFolder(path: string): Promise<void> {
+  if (process.platform !== "darwin") return Promise.reject(new Error("Opening folders is available on macOS."));
+  return new Promise((done, reject) => execFile("/usr/bin/open", [path], (error) => error ? reject(error) : done()));
+}
+
+
 interface Job {
   id: string;
   status: JobStatus;
   lines: string[];
   listeners: Set<ServerResponse>;
   startedAt: number;
+  recordings: Map<number, RecordingProgress>;
+  backups: Map<number, string>;
   /** Kept so a browser connecting after the job ends still gets the counts. */
   summary?: unknown;
 }
 
 interface Outcome {
+  index: number;
+  recordedAt?: string | null;
+  duration?: string;
+  hasBackup?: boolean;
   url: string;
   shareId?: string;
   title?: string;
@@ -123,7 +158,7 @@ export class Jobs {
   private readonly map = new Map<string, Job>();
 
   create(): Job {
-    const job: Job = { id: randomBytes(9).toString("hex"), status: "running", lines: [], listeners: new Set(), startedAt: Date.now() };
+    const job: Job = { id: randomBytes(9).toString("hex"), status: "running", lines: [], listeners: new Set(), startedAt: Date.now(), recordings: new Map(), backups: new Map() };
     this.map.set(job.id, job);
     return job;
   }
@@ -135,6 +170,13 @@ export class Jobs {
   append(job: Job, line: string): void {
     job.lines.push(line);
     for (const res of job.listeners) sendSse(res, "log", { line });
+  }
+
+  update(job: Job, update: RecordingProgress): void {
+    const previous = job.recordings.get(update.index);
+    const next = { ...previous, ...update };
+    job.recordings.set(update.index, next);
+    for (const res of job.listeners) sendSse(res, "recording", next);
   }
 
   finish(job: Job, status: Exclude<JobStatus, "running">, summary: unknown): void {
@@ -182,6 +224,7 @@ export class KeyedMutex {
 export async function runImport(jobs: Jobs, job: Job, req: ImportRequest, locks = new KeyedMutex(), envPath = ".env"): Promise<void> {
   const log = (l: string) => jobs.append(job, l);
   const outcomes: Outcome[] = [];
+  req.links.forEach((_, index) => jobs.update(job, { index, stage: "waiting" }));
 
   if (!req.fetchOnly) {
     // Pick up a token refreshed by `npm run set:auth` since this server started,
@@ -189,12 +232,16 @@ export async function runImport(jobs: Jobs, job: Job, req: ImportRequest, locks 
     reloadCredentialsFromEnvFile(envPath);
     refreshCachedCredentials();
     try {
+      if (!authStatus().set || authStatus().expired || unwrapValue(process.env.PLAUD_USER_TOKEN ?? "").length < 10) {
+        throw new UploadError("Open Plaud in Chrome, sign in to your Personal workspace, then refresh the connection.");
+      }
       assertTokenUsable();
     } catch (e) {
       if (e instanceof UploadError) {
         log(`Credential problem: ${e.message}`);
         if (e.hint) log(e.hint);
-        log("Refresh it with `npm run set:auth`, then try again.");
+        log("Open Plaud in Chrome, reload your Personal workspace, then refresh the connection and try again.");
+        req.links.forEach((_, index) => jobs.update(job, { index, stage: "failed", detail: "Refresh your Plaud connection, then retry." }));
         jobs.finish(job, "error", { reason: "auth" });
         return;
       }
@@ -204,13 +251,15 @@ export async function runImport(jobs: Jobs, job: Job, req: ImportRequest, locks 
 
   for (const [i, url] of req.links.entries()) {
     const pos = req.links.length > 1 ? `[${i + 1}/${req.links.length}] ` : "";
+    jobs.update(job, { index: i, stage: "downloading" });
     let ref;
     try {
       ref = parseShareUrl(url);
     } catch (e) {
       const detail = e instanceof ShareUrlError ? e.message.split("\n")[0]! : String(e);
       log(`${pos}SKIP — ${detail}`);
-      outcomes.push({ url, status: "failed", detail });
+      outcomes.push({ index: i, url, status: "failed", detail });
+      jobs.update(job, { index: i, stage: "failed", detail });
       continue;
     }
 
@@ -220,18 +269,25 @@ export async function runImport(jobs: Jobs, job: Job, req: ImportRequest, locks 
       // same link can't interleave file writes or slip past the duplicate check.
       const outcome = await locks.run(ref.shareId, async (): Promise<Outcome> => {
         const { dir, manifest, audioError } = await archiveShare(ref, { log: (l) => log(`   ${l.trim()}`) });
+        job.backups.set(i, dir);
+        const metadata = { index: i, title: manifest.title, recordedAt: manifest.recordedAt, duration: humanDuration(manifest.durationMs ?? undefined), hasBackup: true };
+        jobs.update(job, { ...metadata, stage: "saved" });
         log(`   ${manifest.title}`);
         log(`   ${humanDuration(manifest.durationMs ?? undefined)}, ${manifest.counts.utterances} utterances`);
 
         if (audioError || !manifest.audio) {
           log(`   NO AUDIO: ${audioError ?? "this share has none"}`);
-          return { url, shareId: ref.shareId, title: manifest.title, status: "archived", detail: audioError };
+          if (audioError) {
+            return { ...metadata, url, shareId: ref.shareId, status: "failed", detail: "Text was saved on this Mac, but the audio download failed. Check your connection and retry. Nothing was imported to Plaud." };
+          }
+          return { ...metadata, url, shareId: ref.shareId, status: "archived", detail: audioError ?? "This share has no audio. Only the available text was saved." };
         }
         if (req.fetchOnly) {
           log("   Archived.");
-          return { url, shareId: ref.shareId, title: manifest.title, status: "archived" };
+          return { ...metadata, url, shareId: ref.shareId, status: "archived" };
         }
 
+        jobs.update(job, { index: i, stage: "uploading" });
         const result = await importArchive({
           audioPath: join(dir, manifest.audio.file),
           title: manifest.title,
@@ -248,15 +304,22 @@ export async function runImport(jobs: Jobs, job: Job, req: ImportRequest, locks 
               : `   Imported as ${result.fileIdPrefixed}`,
         );
         if (result.status !== "already-imported" && result.checksumMatched === false) log("   WARNING: checksum differs from Plaud's copy.");
-        return { url, shareId: ref.shareId, title: manifest.title, status: result.status, fileId: result.fileIdPrefixed };
+        return { ...metadata, url, shareId: ref.shareId, status: result.status, fileId: result.fileIdPrefixed, detail: result.checksumMatched === false ? "Uploaded, but the checksum differs. Check the recording in Plaud before relying on it." : undefined };
       });
       outcomes.push(outcome);
+      jobs.update(job, { ...outcome, stage: outcome.status });
     } catch (e) {
-      const detail = e instanceof ShareApiError || e instanceof UploadError ? e.message.split("\n")[0]! : String(e);
+      const detail = e instanceof ShareApiError ? (e.hint ?? "Could not read this share. Check your internet connection or ask its owner for a new share link.") : e instanceof UploadError ? e.message.split("\n")[0]! : "Could not complete this recording. Check Technical details and retry.";
       log(`   FAILED: ${detail}`);
-      outcomes.push({ url, shareId: ref.shareId, status: "failed", detail });
+      outcomes.push({ index: i, url, shareId: ref.shareId, status: "failed", detail, hasBackup: job.backups.has(i) });
+      jobs.update(job, { index: i, stage: "failed", detail, hasBackup: job.backups.has(i) });
       if (e instanceof UploadError && /expired/i.test(e.message)) {
-        log("Stopping: the credential expired mid-run. Refresh with `npm run set:auth` and re-run.");
+        log("Stopping: your session expired. Reload Plaud in Chrome, refresh the connection, then retry.");
+        for (let pending = i + 1; pending < req.links.length; pending++) {
+          const detail = "Not started because your session expired. Refresh the connection and retry.";
+          outcomes.push({ index: pending, url: req.links[pending]!, status: "failed", detail });
+          jobs.update(job, { index: pending, stage: "failed", detail });
+        }
         break;
       }
     }
@@ -297,7 +360,7 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(text);
 }
 
-export function createServer(sessionToken: string, jobs = new Jobs(), opts: { envPath?: string; locks?: KeyedMutex } = {}): Server {
+export function createServer(sessionToken: string, jobs = new Jobs(), opts: { envPath?: string; locks?: KeyedMutex; openBackup?: (path: string) => Promise<void>; checkConnection?: () => Promise<unknown> } = {}): Server {
   const envPath = opts.envPath ?? ".env";
   const locks = opts.locks ?? new KeyedMutex();
   return createHttpServer(async (req, res) => {
@@ -340,7 +403,39 @@ export function createServer(sessionToken: string, jobs = new Jobs(), opts: { en
           // Reflect a token refreshed since startup (npm run set:auth).
           reloadCredentialsFromEnvFile(envPath);
           refreshCachedCredentials();
-          sendJson(res, 200, authStatus());
+          sendJson(res, 200, { ...authStatus(), userTokenSet: unwrapValue(process.env.PLAUD_USER_TOKEN ?? "").length >= 10 });
+          return;
+        }
+
+        if (req.method === "POST" && path === "/api/auth/check") {
+          reloadCredentialsFromEnvFile(envPath);
+          refreshCachedCredentials();
+          const state = authStatus();
+          if (!state.set || state.expired || unwrapValue(process.env.PLAUD_USER_TOKEN ?? "").length < 10) {
+            sendJson(res, 409, { verified: false, error: "Open Plaud in Chrome, sign in to Personal, reload Plaud, then check again." });
+            return;
+          }
+          try {
+            // A discarded upload target creates no recording, just as check:auth does.
+            await (opts.checkConnection ?? (() => requestUpload(1_048_576)))();
+            sendJson(res, 200, { verified: true, ...state });
+          } catch {
+            sendJson(res, 502, { verified: false, error: "Plaud could not verify this connection. Reload your signed-in Personal workspace and try again. If it still fails, check your internet connection." });
+          }
+          return;
+        }
+
+        const backupMatch = /^\/api\/jobs\/([0-9a-f]+)\/recordings\/(\d+)\/backup$/.exec(path);
+        if (req.method === "POST" && backupMatch) {
+          const job = jobs.get(backupMatch[1]!);
+          const dir = job?.backups.get(Number(backupMatch[2]));
+          if (!dir) { sendJson(res, 404, { error: "No backup is available for this recording." }); return; }
+          try {
+            await (opts.openBackup ?? openFolder)(safeBackupPath(dir));
+            sendJson(res, 200, { opened: true });
+          } catch {
+            sendJson(res, 400, { error: "Could not open the backup folder. It may have moved, or folder opening is not supported on this system." });
+          }
           return;
         }
 
@@ -367,6 +462,7 @@ export function createServer(sessionToken: string, jobs = new Jobs(), opts: { en
           }
           res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive" });
           for (const line of job.lines) sendSse(res, "log", { line });
+          for (const recording of job.recordings.values()) sendSse(res, "recording", recording);
           if (job.status !== "running") {
             // Replay the stored summary so a late subscriber still gets the counts.
             sendSse(res, "done", { status: job.status, summary: job.summary });
@@ -390,102 +486,6 @@ export function createServer(sessionToken: string, jobs = new Jobs(), opts: { en
   });
 }
 
-/** The single page. Token is embedded so the page's own fetches authenticate;
- *  a foreign site in the same browser cannot read it. */
-export function pageHtml(sessionToken: string): string {
-  const token = sessionToken.replace(/[^a-f0-9]/g, "");
-  return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PlaudPort</title>
-<style>
-  :root { color-scheme: light dark; --fg: #1a1a1a; --bg: #fafafa; --card: #fff; --line: #e2e2e2; --accent: #2b6cb0; --muted: #666; --ok: #2f855a; --warn: #c05621; --err: #c53030; }
-  @media (prefers-color-scheme: dark) { :root { --fg: #e8e8e8; --bg: #1a1a1a; --card: #242424; --line: #3a3a3a; --accent: #63b3ed; --muted: #9a9a9a; --ok: #68d391; --warn: #f6ad55; --err: #fc8181; } }
-  * { box-sizing: border-box; }
-  body { font: 15px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg); background: var(--bg); margin: 0; padding: 24px; }
-  main { max-width: 760px; margin: 0 auto; }
-  h1 { font-size: 20px; margin: 0 0 4px; }
-  .sub { color: var(--muted); margin: 0 0 20px; }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 18px; margin-bottom: 16px; }
-  label { font-weight: 600; display: block; margin-bottom: 6px; }
-  textarea { width: 100%; min-height: 90px; font: 13px/1.4 ui-monospace, Menlo, monospace; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); resize: vertical; }
-  .opts { display: flex; gap: 18px; margin: 12px 0; flex-wrap: wrap; }
-  .opts label { font-weight: 400; display: flex; align-items: center; gap: 6px; margin: 0; }
-  button { font: inherit; font-weight: 600; background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 10px 20px; cursor: pointer; }
-  button:disabled { opacity: 0.5; cursor: default; }
-  #auth { font-size: 13px; padding: 8px 12px; border-radius: 8px; margin-bottom: 16px; border: 1px solid var(--line); }
-  #auth.ok { color: var(--ok); } #auth.warn { color: var(--warn); } #auth.err { color: var(--err); }
-  #log { font: 12px/1.45 ui-monospace, Menlo, monospace; white-space: pre-wrap; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 12px; min-height: 60px; max-height: 420px; overflow: auto; margin-top: 12px; }
-  .hint { color: var(--muted); font-size: 12px; margin-top: 8px; }
-</style>
-</head>
-<body>
-<main>
-  <h1>PlaudPort</h1>
-  <p class="sub">Paste a Plaud share link, import it into your Personal workspace.</p>
-  <div id="auth">Checking credentials…</div>
-  <div class="card">
-    <label for="links">Share links (one per line)</label>
-    <textarea id="links" placeholder="https://web.plaud.ai/s/pub_xxxxxxxx::xxxxxxxx"></textarea>
-    <div class="opts">
-      <label><input type="checkbox" id="fetchOnly"> Archive only (don't upload)</label>
-      <label><input type="checkbox" id="extraCopy"> Import again if already there</label>
-    </div>
-    <button id="go">Import</button>
-    <p class="hint">Runs on your machine. Nothing leaves it except between you and Plaud.</p>
-  </div>
-  <div class="card">
-    <label>Progress</label>
-    <div id="log">Idle.</div>
-  </div>
-</main>
-<script>
-  const TOKEN = ${JSON.stringify(token)};
-  const H = { "x-plaudport-token": TOKEN };
-  const log = document.getElementById("log");
-  const go = document.getElementById("go");
-  const authEl = document.getElementById("auth");
-
-  async function refreshAuth() {
-    try {
-      const r = await fetch("/api/auth", { headers: H });
-      const a = await r.json();
-      if (!a.set) { authEl.className = "err"; authEl.textContent = "No PLAUD_AUTH set. Add it with 'npm run set:auth'. You can still Archive only."; }
-      else if (a.expired) { authEl.className = "err"; authEl.textContent = "Token expired. Refresh with 'npm run set:auth' before importing."; }
-      else { authEl.className = "ok"; authEl.textContent = "Credentials OK — token expires " + a.relative + "."; }
-    } catch { authEl.className = "warn"; authEl.textContent = "Couldn't check credentials."; }
-  }
-
-  function line(t) { log.textContent += (log.textContent === "Idle." ? "" : "\\n") + t; log.scrollTop = log.scrollHeight; }
-
-  go.onclick = async () => {
-    const links = document.getElementById("links").value;
-    const fetchOnly = document.getElementById("fetchOnly").checked;
-    const extraCopy = document.getElementById("extraCopy").checked;
-    go.disabled = true; log.textContent = "Idle.";
-    try {
-      const r = await fetch("/api/import", { method: "POST", headers: { ...H, "content-type": "application/json" }, body: JSON.stringify({ links, fetchOnly, extraCopy }) });
-      const j = await r.json();
-      if (!r.ok) { line("Error: " + (j.error || r.status)); go.disabled = false; return; }
-      const es = new EventSource("/api/jobs/" + j.jobId + "/events?t=" + encodeURIComponent(TOKEN));
-      es.addEventListener("log", (e) => line(JSON.parse(e.data).line));
-      es.addEventListener("done", (e) => {
-        const d = JSON.parse(e.data);
-        if (d.summary) line("\\nDone — imported " + d.summary.imported + ", already there " + d.summary.already + ", archived " + d.summary.archived + ", failed " + d.summary.failed + ".");
-        es.close(); go.disabled = false; refreshAuth();
-      });
-      es.onerror = () => { line("(connection closed)"); es.close(); go.disabled = false; };
-    } catch (e) { line("Error: " + e); go.disabled = false; }
-  };
-
-  refreshAuth();
-</script>
-</body>
-</html>`;
-}
-
 async function main(): Promise<void> {
   const sessionToken = randomBytes(18).toString("hex");
   const jobs = new Jobs();
@@ -500,8 +500,13 @@ async function main(): Promise<void> {
       console.log("WARNING: PLAUDPORT_HOST is not loopback. This UI can upload to your Plaud; keep it on 127.0.0.1.");
     }
     const auth = authStatus();
-    console.log(auth.set ? (auth.expired ? "  Token is expired — run `npm run set:auth` before importing." : `  Token OK, expires ${auth.relative}.`) : "  No token set — Archive only until you run `npm run set:auth`.");
-    console.log("  Open that URL in your browser. Ctrl-C to stop.\n");
+    console.log(auth.set && !auth.expired ? "  Saved session found. Use Check connection in the page to verify it with Plaud." : "  Open Plaud in Chrome and sign in to connect. You can save local copies without signing in.");
+    console.log("  Keep this Terminal window open. Press Control-C to stop PlaudPort.\n");
+    if (process.argv.includes("--open") && process.platform === "darwin" && isLoopbackHost(`${host}:${port}`)) {
+      execFile("/usr/bin/open", [`http://${shown}:${port}`], (error) => {
+        if (error) console.log("  Your browser could not be opened automatically. Open the URL above.");
+      });
+    }
   });
   server.on("error", (e) => {
     console.error(`Could not start the web server: ${(e as Error).message}`);

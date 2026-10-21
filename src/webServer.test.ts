@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, symlinkSync, realpathSync } from "node:fs";
 import { createServer as createHttpServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -34,11 +34,14 @@ let standIn: Server;
 let dataDir: string;
 let noEnv: string; // a path with no file, so the credential reload is a no-op in tests
 let mod: typeof import("./webServer.js");
+let fixtureTitle = "Web UI test meeting";
+let failAudio = false;
 
 before(async () => {
   standIn = createHttpServer((req, res) => {
     const url = req.url ?? "";
     if (url.includes("/share/access/") && url.endsWith("/audio")) {
+      if (failAudio) { res.writeHead(503); res.end(); return; }
       const port = (standIn.address() as AddressInfo).port;
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ status: 0, temp_url: `http://127.0.0.1:${port}/media.wav` }));
@@ -50,7 +53,7 @@ before(async () => {
       res.end(JSON.stringify({
         status: 0, object_type: "file", is_audio: 1, is_trans: 1,
         data_file: {
-          id: "0".repeat(32), filename: "Web UI test meeting", start_time: 1789402715000, duration: 1000, file_language: "en",
+          id: "0".repeat(32), filename: fixtureTitle, start_time: 1789402715000, duration: 1000, file_language: "en",
           trans_result: [{ start_time: 0, end_time: 1000, speaker: "A", content: "hello" }],
         },
       }));
@@ -350,4 +353,122 @@ test("KeyedMutex serializes the same key and runs different keys concurrently", 
   // A thrown task still releases the key for the next one.
   await assert.rejects(m.run("z", () => Promise.reject(new Error("boom"))));
   assert.equal(await m.run("z", () => Promise.resolve("ok")), "ok");
+});
+
+
+test("connection verification is token-gated and never exposes credentials", async () => {
+  const token = "abc123def456";
+  let checks = 0;
+  const server = mod.createServer(token, undefined, { envPath: noEnv, checkConnection: async () => { checks++; } });
+  const port = await listen(server);
+  try {
+    const denied = await fetch(`http://127.0.0.1:${port}/api/auth/check`, { method: "POST" });
+    assert.equal(denied.status, 403);
+    assert.equal(checks, 0);
+    const reply = await fetch(`http://127.0.0.1:${port}/api/auth/check`, { method: "POST", headers: { "x-plaudport-token": token } });
+    assert.equal(reply.status, 200);
+    assert.equal(checks, 1);
+    const text = await reply.text();
+    assert.equal(JSON.parse(text).verified, true);
+    assert.ok(!text.includes(process.env.PLAUD_USER_TOKEN!));
+    assert.ok(!text.includes(process.env.PLAUD_AUTH!));
+  } finally { server.close(); }
+});
+
+test("a failed connection check gives recovery guidance without the upstream error", async () => {
+  const token = "abc123def456";
+  const server = mod.createServer(token, undefined, { envPath: noEnv, checkConnection: async () => { throw Error("private-upstream-error"); } });
+  const port = await listen(server);
+  try {
+    const reply = await fetch(`http://127.0.0.1:${port}/api/auth/check`, { method: "POST", headers: { "x-plaudport-token": token } });
+    assert.equal(reply.status, 502);
+    const text = await reply.text();
+    assert.ok(text.includes("Reload your signed-in Personal workspace"));
+    assert.ok(!text.includes("private-upstream-error"));
+  } finally { server.close(); }
+});
+
+test("missing upload credentials fail the job without stopping the server", async () => {
+  const token = "abc123def456", saved = process.env.PLAUD_USER_TOKEN;
+  const server = mod.createServer(token, undefined, { envPath: noEnv });
+  const port = await listen(server);
+  try {
+    process.env.PLAUD_USER_TOKEN = "";
+    const start = await fetch(`http://127.0.0.1:${port}/api/import`, { method: "POST", headers: { "x-plaudport-token": token, "content-type": "application/json" }, body: JSON.stringify({ links: "https://web.plaud.ai/s/pub_00000000-0000-4000-8000-000000000000::demotoken" }) });
+    const { jobId } = await start.json() as { jobId: string };
+    const events = await (await fetch(`http://127.0.0.1:${port}/api/jobs/${jobId}/events?t=${token}`)).text();
+    assert.ok(events.includes('"reason":"auth"'));
+    assert.ok(events.includes('"stage":"failed"'));
+    assert.equal((await fetch(`http://127.0.0.1:${port}/`)).status, 200);
+  } finally {
+    if (saved === undefined) delete process.env.PLAUD_USER_TOKEN; else process.env.PLAUD_USER_TOKEN = saved;
+    server.close();
+  }
+});
+
+test("safeBackupPath rejects outside folders and escaping symlinks", () => {
+  const outside = mkdtempSync(join(tmpdir(), "plaudport-outside-"));
+  const inside = join(dataDir, "shares", "safe-folder");
+  const link = join(dataDir, "shares", "escaping-link");
+  mkdirSync(inside, { recursive: true });
+  symlinkSync(outside, link);
+  try {
+    assert.equal(mod.safeBackupPath(inside), realpathSync(inside));
+    assert.throws(() => mod.safeBackupPath(outside));
+    assert.throws(() => mod.safeBackupPath(link));
+  } finally { rmSync(link); rmSync(outside, { recursive: true, force: true }); }
+});
+
+test("backup opening accepts only a known job's archive and is token-gated", async () => {
+  const token = randomBytes(8).toString("hex");
+  let opened = "";
+  const server = mod.createServer(token, undefined, { envPath: noEnv, openBackup: async path => { opened = path; } });
+  const port = await listen(server);
+  try {
+    const headers = { "x-plaudport-token": token, "content-type": "application/json" };
+    const start = await fetch(`http://127.0.0.1:${port}/api/import`, { method: "POST", headers, body: JSON.stringify({ links: "https://web.plaud.ai/s/pub_00000000-0000-4000-8000-000000000000::demotoken", fetchOnly: true }) });
+    const { jobId } = await start.json() as { jobId: string };
+    const stream = await (await fetch(`http://127.0.0.1:${port}/api/jobs/${jobId}/events?t=${token}`)).text();
+    assert.ok(stream.includes('"hasBackup":true'));
+    assert.ok(stream.includes('"recordedAt"'));
+    assert.ok(stream.includes('event: recording'));
+    assert.ok(!stream.includes(dataDir), "raw local paths must not go to the page");
+    const endpoint = `http://127.0.0.1:${port}/api/jobs/${jobId}/recordings/0/backup`;
+    assert.equal((await fetch(endpoint, { method: "POST" })).status, 403);
+    assert.equal(opened, "");
+    assert.equal((await fetch(endpoint, { method: "POST", headers })).status, 200);
+    assert.ok(opened.startsWith(realpathSync(join(dataDir, "shares"))));
+    assert.equal((await fetch(endpoint.replace("/0/backup", "/999/backup"), { method: "POST", headers })).status, 404);
+  } finally { server.close(); }
+});
+
+test("audio download errors remain retryable and renamed shares retain their import ledger", async () => {
+  const { archiveShare, readManifest, manifestPath } = await import("./archive.js");
+  const { parseShareUrl } = await import("./shareUrl.js");
+  const ref = parseShareUrl("https://web.plaud.ai/s/pub_00000000-0000-4000-8000-000000000001::demotoken");
+  const jobs = new mod.Jobs();
+  const failed = jobs.create();
+  try {
+    failAudio = true;
+    await mod.runImport(jobs, failed, { links: [ref.url], fetchOnly: false, extraCopy: false }, undefined, noEnv);
+    assert.equal(failed.recordings.get(0)?.stage, "failed");
+    assert.equal(failed.recordings.get(0)?.hasBackup, true);
+    assert.match(failed.recordings.get(0)?.detail ?? "", /Nothing was imported/);
+    failAudio = false;
+    const retried = jobs.create();
+    await mod.runImport(jobs, retried, { links: [ref.url], fetchOnly: true, extraCopy: false }, undefined, noEnv);
+    assert.equal(retried.recordings.get(0)?.stage, "archived");
+    const first = await archiveShare(ref);
+    writeFileSync(manifestPath(first.dir), JSON.stringify({ ...first.manifest, importedFileId: "fictional-existing" }));
+    fixtureTitle = "Renamed fictional meeting";
+    const renamed = await archiveShare(ref);
+    assert.equal(renamed.dir, first.dir);
+    assert.equal(renamed.manifest.title, fixtureTitle);
+    assert.equal(readManifest(renamed.dir)?.importedFileId, "fictional-existing");
+    const { importArchive } = await import("./importer.js");
+    assert.equal((await importArchive({ audioPath: join(renamed.dir, "audio.mp3"), title: fixtureTitle, startTime: 1, shareDir: renamed.dir })).status, "already-imported");
+  } finally {
+    failAudio = false;
+    fixtureTitle = "Web UI test meeting";
+  }
 });

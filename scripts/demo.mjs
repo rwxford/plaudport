@@ -54,7 +54,7 @@ function makeWav({ seconds = 2, rate = 22050, freq = 440 } = {}) {
 
 function run(args, env) {
   return new Promise((resolve) => {
-    const child = spawn("npx", ["tsx", ...args], {
+    const child = spawn(process.execPath, ["--import", "tsx", ...args], {
       cwd: ROOT,
       env: { ...process.env, ...env },
       stdio: ["ignore", "pipe", "pipe"],
