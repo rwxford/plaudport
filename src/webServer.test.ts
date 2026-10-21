@@ -34,11 +34,14 @@ let standIn: Server;
 let dataDir: string;
 let noEnv: string; // a path with no file, so the credential reload is a no-op in tests
 let mod: typeof import("./webServer.js");
+let fixtureTitle = "Web UI test meeting";
+let failAudio = false;
 
 before(async () => {
   standIn = createHttpServer((req, res) => {
     const url = req.url ?? "";
     if (url.includes("/share/access/") && url.endsWith("/audio")) {
+      if (failAudio) { res.writeHead(503); res.end(); return; }
       const port = (standIn.address() as AddressInfo).port;
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ status: 0, temp_url: `http://127.0.0.1:${port}/media.wav` }));
@@ -50,7 +53,7 @@ before(async () => {
       res.end(JSON.stringify({
         status: 0, object_type: "file", is_audio: 1, is_trans: 1,
         data_file: {
-          id: "0".repeat(32), filename: "Web UI test meeting", start_time: 1789402715000, duration: 1000, file_language: "en",
+          id: "0".repeat(32), filename: fixtureTitle, start_time: 1789402715000, duration: 1000, file_language: "en",
           trans_result: [{ start_time: 0, end_time: 1000, speaker: "A", content: "hello" }],
         },
       }));
@@ -437,4 +440,35 @@ test("backup opening accepts only a known job's archive and is token-gated", asy
     assert.ok(opened.startsWith(realpathSync(join(dataDir, "shares"))));
     assert.equal((await fetch(endpoint.replace("/0/backup", "/999/backup"), { method: "POST", headers })).status, 404);
   } finally { server.close(); }
+});
+
+test("audio download errors remain retryable and renamed shares retain their import ledger", async () => {
+  const { archiveShare, readManifest, manifestPath } = await import("./archive.js");
+  const { parseShareUrl } = await import("./shareUrl.js");
+  const ref = parseShareUrl("https://web.plaud.ai/s/pub_00000000-0000-4000-8000-000000000001::demotoken");
+  const jobs = new mod.Jobs();
+  const failed = jobs.create();
+  try {
+    failAudio = true;
+    await mod.runImport(jobs, failed, { links: [ref.url], fetchOnly: false, extraCopy: false }, undefined, noEnv);
+    assert.equal(failed.recordings.get(0)?.stage, "failed");
+    assert.equal(failed.recordings.get(0)?.hasBackup, true);
+    assert.match(failed.recordings.get(0)?.detail ?? "", /Nothing was imported/);
+    failAudio = false;
+    const retried = jobs.create();
+    await mod.runImport(jobs, retried, { links: [ref.url], fetchOnly: true, extraCopy: false }, undefined, noEnv);
+    assert.equal(retried.recordings.get(0)?.stage, "archived");
+    const first = await archiveShare(ref);
+    writeFileSync(manifestPath(first.dir), JSON.stringify({ ...first.manifest, importedFileId: "fictional-existing" }));
+    fixtureTitle = "Renamed fictional meeting";
+    const renamed = await archiveShare(ref);
+    assert.equal(renamed.dir, first.dir);
+    assert.equal(renamed.manifest.title, fixtureTitle);
+    assert.equal(readManifest(renamed.dir)?.importedFileId, "fictional-existing");
+    const { importArchive } = await import("./importer.js");
+    assert.equal((await importArchive({ audioPath: join(renamed.dir, "audio.mp3"), title: fixtureTitle, startTime: 1, shareDir: renamed.dir })).status, "already-imported");
+  } finally {
+    failAudio = false;
+    fixtureTitle = "Web UI test meeting";
+  }
 });

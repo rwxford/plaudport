@@ -56,6 +56,10 @@ export async function importArchive(opts: ImportOptions): Promise<ImportResult> 
   const bytes = statSync(opts.audioPath).size;
 
   const previous = opts.shareDir ? readManifest<ImportRecord>(opts.shareDir) : null;
+  if (previous?.importConfirmationPending) {
+    throw new UploadError("Plaud may already have this recording. Check Personal before importing again. Automatic retry is blocked to avoid a duplicate.",
+      "See README troubleshooting for an uncertain upload confirmation.");
+  }
   const previousFileIdPrefixed = previous?.importedFileId
     ? (previous.importedFileIdPrefixed ?? prefixedFileId(previous.importedFileId))
     : undefined;
@@ -92,6 +96,14 @@ export async function importArchive(opts: ImportOptions): Promise<ImportResult> 
 
   await mergeParts(target.uploadId, target.objectName, parts);
 
+  // Persist BEFORE the write that creates a Plaud recording. If the response
+  // is lost (or saving its id fails), retrying must not create another copy.
+  if (opts.shareDir) {
+    const manifest = readManifest<ImportRecord>(opts.shareDir);
+    if (!manifest) throw new UploadError("The backup manifest is missing. Restore it before importing.");
+    manifest.importConfirmationPending = true;
+    writeFileSync(manifestPath(opts.shareDir), JSON.stringify(manifest, null, 2));
+  }
   const created = await confirmUpload({
     uploadId: target.uploadId,
     objectName: target.objectName,
@@ -100,6 +112,10 @@ export async function importArchive(opts: ImportOptions): Promise<ImportResult> 
     sessionId: opts.sessionId ?? 0,
   });
 
+  if (typeof created?.id !== "string" || !created.id.trim()) {
+    throw new UploadError("Plaud did not return a recording ID. Check Personal before importing again; the recording may already exist.");
+  }
+
   const checksumMatched = created.file_md5
     ? createHash("md5").update(file).digest("hex") === created.file_md5
     : undefined;
@@ -107,6 +123,7 @@ export async function importArchive(opts: ImportOptions): Promise<ImportResult> 
   if (opts.shareDir && created.id) {
     const manifest = readManifest<ImportRecord>(opts.shareDir);
     if (manifest) {
+      delete manifest.importConfirmationPending;
       manifest.importedFileId = created.id;
       manifest.importedFileIdPrefixed = prefixedFileId(created.id);
       manifest.importedAt = new Date().toISOString();

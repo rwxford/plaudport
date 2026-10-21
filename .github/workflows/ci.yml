@@ -27,3 +27,10 @@ jobs:
 
       - name: Secret / data check
         run: npm run check:secrets
+
+
+      - name: Launcher syntax
+        run: bash -n Open-PlaudPort.command
+
+      - name: Fictional pipeline demo
+        run: npm run demo

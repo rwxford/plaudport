@@ -277,6 +277,9 @@ export async function runImport(jobs: Jobs, job: Job, req: ImportRequest, locks 
 
         if (audioError || !manifest.audio) {
           log(`   NO AUDIO: ${audioError ?? "this share has none"}`);
+          if (audioError) {
+            return { ...metadata, url, shareId: ref.shareId, status: "failed", detail: "Text was saved on this Mac, but the audio download failed. Check your connection and retry. Nothing was imported to Plaud." };
+          }
           return { ...metadata, url, shareId: ref.shareId, status: "archived", detail: audioError ?? "This share has no audio. Only the available text was saved." };
         }
         if (req.fetchOnly) {

@@ -47,6 +47,7 @@ to work in. Then run these commands, one at a time:
 ```bash
 npm install
 npm run chrome:install
+chmod +x Open-PlaudPort.command
 ```
 
 The installer prints the full path to the Chrome extension folder. Keep that
@@ -140,6 +141,14 @@ Closing the browser page alone does not stop the server.
 | Address already in use | Another server is using that address. Use the existing PlaudPort tab if it is already running, or stop the other server and relaunch. |
 | Progress connection interrupted | Keep the page open while it reconnects. The import may still be running; avoid submitting the same links again. |
 | A recording needs attention | Read its card, fix the issue, then retry unsuccessful recordings. |
+| Audio download failed | The available text is backed up, but no audio was imported. Check your connection, then retry unsuccessful recordings. |
+| Plaud may already have this recording / no recording ID returned | Confirmation was uncertain. Check your Personal workspace by title and original date before doing anything else. Automatic retries are blocked to prevent duplicates, even with the extra-copy option. See below. |
+
+For an uncertain confirmation, keep the backup. After checking Plaud, an advanced
+user can reconcile its `manifest.json`: if the recording exists, record its
+`importedFileId` and remove `importConfirmationPending`; if it definitely does not
+exist, remove only `importConfirmationPending` and retry. Do not clear this guard
+while the result is unknown.
 
 The Plaud session usually expires after about a day. If Chrome has been idle,
 reload your signed-in Plaud page before importing. This tool does not sign in

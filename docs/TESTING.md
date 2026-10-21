@@ -72,9 +72,13 @@ Known ways this can legitimately fail, none of them mysterious:
 | `HTTP 403` when downloading | The signed link expired (they last hours) | Re-record the HAR, scan again |
 | "not in PLAUD_ALLOWED_HOSTS" | Audio is served from a CDN we haven't seen | The error prints the exact line to add it |
 
-## What is *not* tested yet
+## What these checks prove
 
-**Uploading into Plaud.** No code has ever successfully written to a Plaud
-workspace — not here, not in the migration project. Until that's proven, the
-honest end of this pipeline is an audio file on your disk that you import by
-hand through Plaud Web. Anything claiming otherwise would be guesswork.
+The demo exercises archiving, mocked multipart uploads, confirmation, and duplicate
+skipping using fictional recordings. Server tests cover authentication gates,
+backup path restrictions, and retryable download failures. Importer tests cover
+missing recording IDs and lost confirmation responses without contacting Plaud.
+
+Automated checks do not validate the current live Plaud API. A live Chrome
+credential capture and share import were reported on October 17, 2026; later
+fixture tests are not additional live validation.

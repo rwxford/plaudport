@@ -4,7 +4,7 @@ import { detailToMarkdown, slugify, transcriptToText } from "./format.js";
 import { fetchShareAudioUrl, fetchShareDetail, ShareApiError, type ShareDetail } from "./shareClient.js";
 import type { ShareRef } from "./shareUrl.js";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 /**
@@ -16,6 +16,8 @@ import { join } from "node:path";
 /** What the importer records once a recording is in Plaud — shared by share
  *  archives and local-file imports, so both dedupe the same way. */
 export interface ImportRecord {
+  /** Confirmation may have reached Plaud; retries must not create a duplicate. */
+  importConfirmationPending?: boolean;
   importedFileId?: string;
   /** The same id with the `of_` prefix Plaud's own APIs and MCP use. */
   importedFileIdPrefixed?: string;
@@ -84,7 +86,14 @@ export async function archiveShare(ref: ShareRef, opts: { force?: boolean; log?:
     notes: f.notes_list?.length ?? 0,
   };
 
-  const dir = join(config.dataDir, "shares", `${ref.shareId}-${slugify(title)}`);
+  const shares = join(config.dataDir, "shares");
+  mkdirSync(shares, { recursive: true });
+  // A renamed share must retain its import ledger. Do not follow directory
+  // symlinks while looking for a previous archive.
+  const existing = readdirSync(shares, { withFileTypes: true })
+    .filter(entry => entry.isDirectory() && entry.name.startsWith(`${ref.shareId}-`))
+    .find(entry => readManifest(join(shares, entry.name))?.shareId === ref.shareId);
+  const dir = join(shares, existing?.name ?? `${ref.shareId}-${slugify(title)}`);
   mkdirSync(dir, { recursive: true });
 
   const files: string[] = [];
