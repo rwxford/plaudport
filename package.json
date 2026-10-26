@@ -1,12 +1,15 @@
 {
   "name": "plaudport",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "description": "Local-first tool to import shared Plaud meetings into your Personal workspace, and to back up and consolidate your own Plaud recordings.",
   "license": "MIT",
   "type": "module",
   "engines": {
     "node": ">=20"
+  },
+  "bin": {
+    "plaudport": "bin/plaudport.mjs"
   },
   "scripts": {
     "spike": "tsx src/spike.ts",
@@ -29,7 +32,8 @@
     "hooks:install": "bash scripts/install-hooks.sh",
     "chrome:install": "node scripts/chrome-auth-install.mjs",
     "test:chrome": "node --test scripts/chrome-auth.test.mjs",
-    "start": "node --import tsx src/webServer.ts --open"
+    "start": "node --import tsx src/webServer.ts --open",
+    "cli": "node bin/plaudport.mjs"
   },
   "devDependencies": {
     "tsx": "^4.19.0",
