@@ -172,6 +172,9 @@ After updating your project files:
   Conversion of non-MP3 files requires FFmpeg; the Gong guide covers setup.
 - **Team migration:** experimental research, not an everyday user feature.
   See the [migration plan](docs/PRD.md).
+- **Install with Homebrew:** `brew install rwxford/tap/plaudport` gives you a
+  `plaudport` command (and `brew upgrade` for updates) without cloning. See the
+  [Homebrew guide](docs/HOMEBREW.md).
 - **Configuration, scripts, and roadmap:** [Advanced documentation](docs/ADVANCED.md).
 - **Chrome helper details and removal:** [Chrome setup guide](docs/CHROME-AUTH.md).
 - **Testing and contributing:** [Testing](docs/TESTING.md) · [Contributing](CONTRIBUTING.md).
