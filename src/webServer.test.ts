@@ -40,7 +40,7 @@ let failAudio = false;
 before(async () => {
   standIn = createHttpServer((req, res) => {
     const url = req.url ?? "";
-    if (url.includes("/share/access/") && url.endsWith("/audio")) {
+    if (url.includes("/access/") && url.endsWith("/audio")) {
       if (failAudio) { res.writeHead(503); res.end(); return; }
       const port = (standIn.address() as AddressInfo).port;
       res.writeHead(200, { "content-type": "application/json" });
@@ -48,7 +48,7 @@ before(async () => {
     } else if (url.startsWith("/media.wav")) {
       res.writeHead(200, { "content-type": "audio/wav", "content-length": AUDIO.length });
       res.end(AUDIO);
-    } else if (url.includes("/share/access/")) {
+    } else if (url.includes("/access/")) {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({
         status: 0, object_type: "file", is_audio: 1, is_trans: 1,
