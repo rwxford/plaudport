@@ -136,7 +136,18 @@ async function getJson<T>(url: string): Promise<T> {
   // Plaud signals application-level failure with a non-zero `status`, even on 200.
   const status = (body as { status?: number })?.status;
   if (typeof status === "number" && status !== 0) {
-    throw new ShareApiError(`The share API reported status ${status}.`, "That usually means the link is invalid or expired.");
+    // Surface Plaud's own words. On an error the body is error metadata, not the
+    // meeting content, so it is safe to show — and the `message` usually says
+    // exactly why (expired, revoked, needs login, API shape changed…).
+    const b = body as { msg?: unknown; message?: unknown; detail?: unknown };
+    const plaudMessage = [b.msg, b.message, b.detail].find((v) => typeof v === "string" && v.trim()) as string | undefined;
+    const raw = JSON.stringify(body).replace(/\s+/g, " ").slice(0, 300);
+    throw new ShareApiError(
+      `The share API reported status ${status}${plaudMessage ? `: ${plaudMessage}` : ""}.`,
+      `Full response: ${raw}\n` +
+        "If the link still opens in a browser, Plaud likely changed its share API for this\n" +
+        "kind of link; src/shareClient.ts may need its endpoint updated (docs/SHARE-API.md).",
+    );
   }
   return body as T;
 }
