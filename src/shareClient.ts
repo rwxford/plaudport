@@ -3,10 +3,10 @@ import type { ShareRef } from "./shareUrl.js";
 import { randomBytes } from "node:crypto";
 
 /**
- * Client for Plaud's public share API, as observed on 2026-09-14.
+ * Client for Plaud's public share API, as observed on 2026-10-28 (v4 endpoint).
  *
- *   GET https://api.plaud.ai/share/access/<pub_id>::<token>        -> metadata + transcript
- *   GET https://api.plaud.ai/share/access/<pub_id>::<token>/audio  -> { temp_url }
+ *   GET https://api.plaud.ai/share/v4/access/<pub_id>::<token>        -> metadata + transcript
+ *   GET https://api.plaud.ai/share/v4/access/<pub_id>::<token>/audio  -> { temp_url }
  *
  * No login, no bearer token: holding the share link is the authorisation, which
  * is exactly what makes a share link work in a browser with no Plaud account.
@@ -101,6 +101,9 @@ function shareHeaders(): Record<string, string> {
     "user-agent": BROWSER_UA,
     "x-device-id": getDeviceId(),
     "x-request-id": randomBytes(6).toString("hex"),
+    // The v4 web app sends the timezone as x-timezone-iana (observed 2026-10-28).
+    // We keep `timezone` too; an extra header is harmless and covers both shapes.
+    "x-timezone-iana": timezone,
   };
 }
 
@@ -152,7 +155,11 @@ async function getJson<T>(url: string): Promise<T> {
   return body as T;
 }
 
-const accessUrl = (ref: ShareRef) => `${config.shareApiBase}/share/access/${ref.shareId}::${ref.accessToken}`;
+// Plaud bumped this to /share/v4/ (observed 2026-10-28). The older /share/access/
+// now returns {status:40400,"Share not found"} for links that still open in a
+// browser. Host, the <pub_id>::<token> reference, and the no-auth model are
+// unchanged — only the path is versioned. See docs/SHARE-API.md.
+const accessUrl = (ref: ShareRef) => `${config.shareApiBase}/share/v4/access/${ref.shareId}::${ref.accessToken}`;
 
 /** Metadata, transcript, outline and notes for a shared recording. */
 export function fetchShareDetail(ref: ShareRef): Promise<ShareDetail> {

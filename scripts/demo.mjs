@@ -121,11 +121,11 @@ async function main() {
     if (url.startsWith("/media/recording.wav")) {
       res.writeHead(200, { "content-type": "audio/wav", "content-length": audio.length });
       res.end(audio);
-    } else if (url.includes("/share/access/") && url.endsWith("/audio")) {
+    } else if (url.includes("/access/") && url.endsWith("/audio")) {
       audioLinkRequests++;
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ status: 0, temp_url: `http://127.0.0.1:${port}/media/recording.wav?signature=pretend` }));
-    } else if (url.includes("/share/access/")) {
+    } else if (url.includes("/access/")) {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify(detail));
     } else if (url.startsWith("/upload/part")) {
