@@ -1,6 +1,6 @@
 # PRD — Plaud as Capture Device, Everything Else Local ("PlaudPort v2")
 
-**Status:** Draft v3 for review (2026-10-29; v1 revised the same day after design
+**Status:** Draft v4 for review (2026-10-29; v1 revised the same day after design
 review: id-based discovery with readiness states, versioned speaker assignments
 with downstream invalidation, ground-truth gates, backup/restore contract, P0
 library-access gate) · **Owner:** Ross Weatherford (rwxford) ·
@@ -168,8 +168,10 @@ Phase 2, still blocked on a credential).
   or null, score, runner-up id + score, library version, assigned_at, and
   `source: auto | manual`). Any change to the voice library (`enroll`, `rename`,
   `merge`, `remove`, threshold or margin change, re-enrollment) bumps the
-  library version. **Diarized speaker embeddings are stored per recording**, so
-  re-identification never requires re-running diarization.
+  library version. **Diarized speaker embeddings are persisted per recording**
+  so re-identification never requires re-running diarization, but they live in
+  the protected biometric store (FR10), keyed by recording id, never in the
+  archive.
 - FR8c-i. **Scope of re-identification.** A library change can affect
   assignments that never referenced the changed voice: enrolling Jane can turn
   a confident John match into a near-miss (FR8b), and a threshold change moves
@@ -211,10 +213,33 @@ Phase 2, still blocked on a credential).
 - FR9. Enrolling from a recording the owner already labelled is the primary
   path: the first run of a known meeting yields `Speaker 2 = Jane` in a minute of
   review; every later meeting with Jane is automatic.
-- FR10. The voice library lives in `~/Library/Application Support/PlaudPort/voices/`
-  with owner-only permissions, encrypted at rest with a key in the macOS Keychain,
-  never under the repo, never in the vault, never published. Export only via an
-  explicit `voices export` that warns.
+- FR10. **One protected biometric store for every embedding.** The voice
+  library (enrolled profiles) *and* the per-recording diarized speaker
+  embeddings (FR8c) live together in
+  `~/Library/Application Support/PlaudPort/biometric/`, owner-only, encrypted at
+  rest with a key in the macOS Keychain, never under the repo, never under the
+  archive root (which may be a synced or external volume), never in the vault,
+  never published, never in a backup of the archive. The archive's
+  `assignments.json` carries only the outcome (voice id or null, scores,
+  source); the vectors it was computed from are not recoverable from it.
+  - FR10a. An unenrolled speaker's embedding is biometric data about someone
+    who never agreed to be enrolled, so it gets the strictest handling: it is
+    retained only to make re-scoring possible, and `plaudport biometric prune
+    [--older-than <period>]` (default retention: 90 days, configurable, `0` =
+    keep only enrolled) drops unenrolled embeddings; a pruned speaker simply
+    cannot be auto-named later without re-diarizing that recording.
+  - FR10b. `voices remove` deletes the enrolled profile and, because enrolled
+    embeddings may have been derived from recordings, any per-recording
+    embedding that was used as enrollment evidence for it. Deleting a recording
+    from the archive deletes its embeddings from the store in the same
+    operation.
+  - FR10c. Backups of the biometric store are separate from archive backups,
+    opt-in, encrypted with the same key, and `doctor` reports if the store is
+    found inside any configured backup or sync path. Export only via an
+    explicit `biometric export` that warns and requires confirmation.
+  - FR10d. §8's "what the voice library is" README section describes both
+    halves of the store, so a reader of the public repo knows exactly what is
+    kept about enrolled and unenrolled people, where, and for how long.
 
 ### Summarize
 - FR11. `plaudport summarize [<id>|--pending] [--template <name>]` renders a
@@ -234,9 +259,9 @@ Phase 2, still blocked on a credential).
 - FR14. **Local store is canonical.** `<archive-root>/<YYYY>/<MM>/<id>-<slug>/`
   holds `audio.mp3`, `manifest.json` (pointer + hashes, FR14b), `plaud/`
   (whatever Plaud produced), and revision directories each containing
-  `transcript.json`, `transcript.md`, `embeddings.json`, `assignments.json`,
-  `summary-<template>.md`. Index in SQLite. Canonical means it must be
-  recoverable:
+  `transcript.json`, `transcript.md`, `assignments.json`,
+  `summary-<template>.md`. No embeddings (FR10). Index in SQLite. Canonical
+  means it must be recoverable:
   - FR14a. `PLAUDPORT_ARCHIVE_ROOT` is configurable and may point at an external
     or synced volume; the default under the repo is for development only, and
     `doctor` warns when the archive root is on the boot volume with no backup
@@ -252,10 +277,15 @@ Phase 2, still blocked on a credential).
     its sha256; readers validate the referenced artifacts against the manifest
     and reject the revision (falling back to the previous pointer) on any
     mismatch. Audio is written once and referenced by all revisions, never
-    rewritten. A revision directory not referenced by the manifest is
-    incomplete garbage and is cleaned up by `plaudport index rebuild`; the
-    previous N revisions (default 3) are kept so a correction can be inspected
-    or reverted.
+    rewritten. The manifest carries a `current` pointer **and a `history`
+    list** of retained previous revisions (default 3), each with its artifact
+    hashes, so fallback and `plaudport revisions revert <id> <rev>` work from
+    the manifest alone. Cleanup, whether by a normal write or by
+    `plaudport index rebuild`, removes only revision directories that are in
+    neither `current` nor `history`; a directory not referenced by either is an
+    aborted write and is safe to delete. Retention trimming (dropping the
+    oldest history entry) happens in the same atomic manifest swap that adds a
+    new revision, never as a separate pass that could race with a reader.
   - FR14c. **The index is derived.** `plaudport index rebuild` reconstructs the
     SQLite database and FTS index from manifests alone; the database is never
     the only copy of anything. Manifests carry sha256 for audio and transcripts.
@@ -263,9 +293,9 @@ Phase 2, still blocked on a credential).
     sample of recordings from a backup location into a scratch root and checks
     hashes. Documented in `docs/BACKUP.md` before P6; §8's "Plaud as transit
     buffer" stance is not adopted until a restore has been exercised once.
-  - FR14e. **Voice-library key recovery.** The Keychain key is exportable once,
+  - FR14e. **Biometric-store key recovery.** The Keychain key is exportable once,
     at creation, as a recovery phrase the owner stores outside the Mac; without
-    it a restored voice library is unreadable, and the PRD treats that as the
+    it a restored biometric store is unreadable, and the PRD treats that as the
     correct failure mode rather than storing the key beside the data.
 - FR15. `plaudport publish --to notion` upserts one page per recording into a
   configured database (title, date, duration, participants, template summaries,
@@ -329,7 +359,7 @@ Plaud Note Pro ─BT/Wi-Fi─▶ Plaud app ─▶ Plaud cloud
 │                │           │  Python sidecar (MLX): parakeet /     │
 │                │           │  whisper-turbo / pyannote / embeddings │
 │                │           ▼                                        │
-│                │     voices/ (Keychain-encrypted)                   │
+│                │     biometric/ (Keychain-encrypted, outside archive) │
 │                ▼                                                    │
 │   SQLite index + FTS5 ─▶ publish ─▶ Notion │ vault (private repo)   │
 │                        └─▶ mcp (stdio) ─▶ Claude Desktop / Code     │
@@ -404,8 +434,8 @@ OWASP mapping in `PRD.md` §8 still applies. New in v2:
 - **P2 — Diarize + identify (2 weeks).** pyannote; voice library; enroll-from-
   recording; FR8a–d. **Exit, on held-out data:** enrollment audio and evaluation
   recordings are disjoint (enroll from meetings A–C, evaluate on D–M). Four
-  separate numbers, each with its own bar: DER (diarization error rate) on the
-  reference excerpts; **false identification rate = 0** on evaluation
+  separate numbers, each with its own bar: DER (diarization error rate) ≤ 15%
+  on the owner's hand-labelled reference excerpts; **false identification rate = 0** on evaluation
   recordings (a wrong name is the one unacceptable error); unidentified rate
   for enrolled speakers ≤ 10% of their speaking time; and no name assigned to
   any unenrolled participant. "As good as Plaud used to be" is not a criterion;
@@ -423,10 +453,12 @@ OWASP mapping in `PRD.md` §8 still applies. New in v2:
 ### Gate after P2
 If the P2 exit criteria are not met on the held-out set (false identification
 rate above zero, unidentified rate for enrolled speakers above 10%, any name on
-an unenrolled participant, or DER materially worse than the reference
-engines' published figures), pause and reassess the engine (embedding model,
-threshold and margin, overlap handling) before building P3+ on top. Speaker identity is the feature that justifies the project;
-summaries without it are only a cheaper Plaud.
+an unenrolled participant, or DER above **15%** on the owner's hand-labelled
+reference excerpts; published figures for pyannote community-1 on public
+benchmarks are context for whether 15% is reasonable, not the bar), pause and
+reassess the engine (embedding model, threshold and margin, overlap handling)
+before building P3+ on top. Speaker identity is the feature that justifies the
+project; summaries without it are only a cheaper Plaud.
 
 ## 10. Risks
 
