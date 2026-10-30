@@ -1,6 +1,9 @@
 # PRD — Plaud as Capture Device, Everything Else Local ("PlaudPort v2")
 
-**Status:** Draft v1 for review (2026-10-29) · **Owner:** Ross Weatherford (rwxford) ·
+**Status:** Draft v2 for review (2026-10-29; v1 revised the same day after design
+review: id-based discovery with readiness states, versioned speaker assignments
+with downstream invalidation, ground-truth gates, backup/restore contract, P0
+library-access gate) · **Owner:** Ross Weatherford (rwxford) ·
 **Priority:** primary. Supersedes `PRD-SHARE-IMPORT.md` as the main line of work;
 share import and the upload path (`UPLOAD-API.md`) become sub-features of this one.
 
@@ -100,10 +103,31 @@ Phase 2, still blocked on a credential).
 ## 5. Functional requirements
 
 ### Pull
-- FR1. `plaudport pull [--since <date>] [--all]` lists recordings newer than the
-  ledger's high-water mark, downloads audio to the archive, and stores Plaud's
-  transcript/summary/highlights alongside when they exist. Idempotent; resumable;
-  sha256 recorded; never mutates Plaud.
+- FR1. `plaudport pull [--since <date>] [--all]` discovers recordings in Plaud,
+  downloads audio to the archive, and stores Plaud's transcript/summary/
+  highlights alongside when they exist. Idempotent; resumable; sha256 recorded;
+  never mutates Plaud. **Discovery is by recording id, not by a high-water
+  mark.** A cursor alone would permanently miss a recording that syncs late
+  from the device (common: the phone app uploads hours after the meeting) or
+  one whose download failed while later ones succeeded.
+- FR1a. **Overlapping discovery.** Each run lists a window that reaches back a
+  configurable period (default 14 days) before the newest known recording, plus
+  any ids still in a non-final state. Every id seen is upserted into the ledger
+  before any download starts, so a crash cannot lose knowledge of a recording.
+- FR1b. **Per-recording readiness states, tracked separately** for audio and for
+  Plaud's derived data: `discovered → audio_pending → audio_ok | audio_failed`
+  and `plaud_text_pending → plaud_text_ok | plaud_text_absent`. Plaud transcribes
+  asynchronously, so a recording's audio may be archived long before its
+  transcript exists; `pull` re-checks `plaud_text_pending` ids on every run
+  until they resolve or age out (configurable; default 7 days → `absent`).
+- FR1c. **Persistent retries by id.** `audio_failed` and expired-URL cases are
+  retried with backoff on subsequent runs, indefinitely, and surfaced in `report`
+  after N failures. A presigned URL that expired mid-download is re-fetched,
+  not treated as a failure of the recording.
+- FR1d. **Periodic full reconciliation.** `plaudport pull --reconcile` (and the
+  scheduler, weekly) lists the entire library and diffs it against the ledger;
+  anything in Plaud and not in the ledger is a P1 defect in discovery and is
+  logged as such, not silently added.
 - FR2. Source adapters behind one interface: `plaud-mcp` (default), `plaud-web`
   (existing reverse-engineered client), `file` (drop folder), `share` (existing).
 - FR3. `mark_memo` highlights (device button presses) are preserved as first-class
@@ -139,6 +163,22 @@ Phase 2, still blocked on a credential).
 - FR8b. A near-miss (second-best match within a configurable margin of the best)
   is reported as ambiguous and left unnamed rather than resolved by the higher
   score alone.
+- FR8c. **Speaker assignments are versioned and corrections propagate.** Each
+  recording stores an `assignments` record (diarized speaker → voice-library id
+  or null, score, library version, assigned_at). Any change to the voice
+  library (`rename`, `merge`, `remove`, threshold change, re-enrollment) or a
+  manual correction (`plaudport speakers set <id> SPEAKER_01 "Jane"`) bumps the
+  library version and marks every recording whose assignments referenced the
+  affected voice as **stale**. `voices remove` additionally nulls those
+  assignments so the name is gone from the transcript immediately; this is what
+  acceptance criterion 4 means by "every derived identification".
+- FR8d. **Downstream invalidation.** A stale recording's summaries, FTS index
+  rows, Notion page and vault pages are flagged stale together. `publish`
+  refuses to push a stale recording and `mcp` returns it with `stale: true` and
+  the transcript's current names, never a cached summary carrying an old name.
+  Regeneration of summaries stays explicit (FR13): `plaudport summarize --stale`
+  lists and regenerates affected recordings in one command, so a correction is
+  one command and one review, not a silent re-spend and not a lingering error.
 - FR9. Enrolling from a recording the owner already labelled is the primary
   path: the first run of a known meeting yields `Speaker 2 = Jane` in a minute of
   review; every later meeting with Jane is automatic.
@@ -156,12 +196,35 @@ Phase 2, still blocked on a credential).
 - FR12. Templates are the owner's; the summarizer stores template name + model +
   prompt hash with the output so a regenerate is reproducible.
 - FR13. Summaries are generated once per template by default; regenerate is an
-  explicit flag. No credits meter, but no silent re-spend either.
+  explicit flag (`--regenerate <id>` or `--stale`, FR8d). No credits meter, but
+  no silent re-spend either. A summary records the assignments version it was
+  built from; a mismatch with the recording's current version is what makes it
+  stale.
 
 ### Publish
-- FR14. **Local store is canonical.** `data/archive/<YYYY>/<MM>/<id>-<slug>/` holds
-  `audio.mp3`, `transcript.json`, `transcript.md`, `summary-<template>.md`,
-  `plaud/` (whatever Plaud produced), `manifest.json`. Index in SQLite.
+- FR14. **Local store is canonical.** `<archive-root>/<YYYY>/<MM>/<id>-<slug>/`
+  holds `audio.mp3`, `transcript.json`, `transcript.md`, `summary-<template>.md`,
+  `assignments.json`, `plaud/` (whatever Plaud produced), `manifest.json`. Index
+  in SQLite. Canonical means it must be recoverable:
+  - FR14a. `PLAUDPORT_ARCHIVE_ROOT` is configurable and may point at an external
+    or synced volume; the default under the repo is for development only, and
+    `doctor` warns when the archive root is on the boot volume with no backup
+    configured.
+  - FR14b. **Atomic writes.** Every file is written to a temp name and renamed;
+    `manifest.json` is written last and is the commit point for a recording.
+    A directory without a complete manifest is incomplete and is resumed, never
+    trusted.
+  - FR14c. **The index is derived.** `plaudport index rebuild` reconstructs the
+    SQLite database and FTS index from manifests alone; the database is never
+    the only copy of anything. Manifests carry sha256 for audio and transcripts.
+  - FR14d. **Verified restore.** `plaudport backup verify <path>` restores a
+    sample of recordings from a backup location into a scratch root and checks
+    hashes. Documented in `docs/BACKUP.md` before P6; §8's "Plaud as transit
+    buffer" stance is not adopted until a restore has been exercised once.
+  - FR14e. **Voice-library key recovery.** The Keychain key is exportable once,
+    at creation, as a recovery phrase the owner stores outside the Mac; without
+    it a restored voice library is unreadable, and the PRD treats that as the
+    correct failure mode rather than storing the key beside the data.
 - FR15. `plaudport publish --to notion` upserts one page per recording into a
   configured database (title, date, duration, participants, template summaries,
   link to local audio). Idempotent via a stored Notion page id.
@@ -279,16 +342,32 @@ OWASP mapping in `PRD.md` §8 still applies. New in v2:
 
 ## 9. Milestones
 
-- **P0 — Pull (1 week).** FR1–FR3 over the MCP; archive layout; ledger; `report`.
-  Exit: every recording since a chosen date is on disk with sha256 and Plaud's
-  transcript where present.
+- **P0 — Pull (1 week).** FR1–FR3 over the MCP; archive layout (FR14a–c);
+  ledger; `report`. **Exit gate — complete-library access proven, not assumed:**
+  (a) `list_files` paged with date filters returns the full library, verified by
+  `--reconcile` against a count taken in the Plaud web app, on a library
+  > 500 recordings; (b) a dense day (≥ 10 recordings) is discovered completely;
+  (c) a presigned URL deliberately allowed to expire is re-fetched and the
+  download completes; (d) a recording with no Plaud transcript lands as
+  `plaud_text_pending` and later resolves; (e) a late-synced recording (device
+  held offline for a day, then synced) is discovered by the overlap window.
+  Only then: every recording since the chosen date is on disk with sha256.
 - **P1 — Transcribe (1–2 weeks).** Sidecar + `parakeet-mlx` + `whisper-mlx`;
-  normalized transcript; `--ab`. Exit: WER (word error rate) spot-check on five
-  recordings against Plaud's transcript, measured, written up in `docs/ENGINES.md`.
+  normalized transcript; `--ab`. **Exit: measured against ground truth, not
+  against Plaud.** Build a reference set: five recordings, one 5-minute excerpt
+  each, hand-corrected by the owner (stored under `data/eval/`, gitignored).
+  Report WER (word error rate) per engine *and* for Plaud's transcript on the
+  same excerpts, in `docs/ENGINES.md`. Plaud is a baseline being measured, not
+  the yardstick.
 - **P2 — Diarize + identify (2 weeks).** pyannote; voice library; enroll-from-
-  recording. Exit: on ten meetings with known participants, named-speaker
-  accuracy ≥ Plaud's former voice-profile behaviour as the owner remembers it,
-  and no false positive on an unenrolled customer.
+  recording; FR8a–d. **Exit, on held-out data:** enrollment audio and evaluation
+  recordings are disjoint (enroll from meetings A–C, evaluate on D–M). Four
+  separate numbers, each with its own bar: DER (diarization error rate) on the
+  reference excerpts; **false identification rate = 0** on evaluation
+  recordings (a wrong name is the one unacceptable error); unidentified rate
+  for enrolled speakers ≤ 10% of their speaking time; and no name assigned to
+  any unenrolled participant. "As good as Plaud used to be" is not a criterion;
+  these are.
 - **P3 — Summarize + local store + MCP (1 week).** Templates, Claude calls,
   SQLite/FTS5, `plaudport mcp` registered in Claude. Exit: Claude answers "what
   did we commit to at X" from local data with Plaud MCP disconnected.
@@ -319,8 +398,11 @@ summaries without it are only a cheaper Plaud.
 
 ## 11. Open questions
 
-- **O1.** Does the Plaud MCP's presigned URL work for recordings older than the
-  newest 500, and does `list_files` paginate the full library? Resolve in P0.
+- **O1.** Does `list_files` paginate the full library? The MCP's current tool
+  description says date filters are server-side and support `page`/`page_size`,
+  and that only the name-substring `query` ignores paging (newest 500 scanned).
+  That is the behaviour FR1a depends on, and it is an assumption until the P0
+  exit gate proves it on this account's library.
 - **O2.** pyannote community-1 on MLX vs. CoreML vs. CPU on the M4: which path,
   and what is the real-time factor? Resolve in P2 spike.
 - **O3.** Embedding model for identification: pyannote's own vs. WeSpeaker /
@@ -349,9 +431,14 @@ summaries without it are only a cheaper Plaud.
 3. No audio has left the Mac except to Plaud, verified by the allowlist log,
    unless cloud STT was double-enabled for a specific run.
 4. The voice library contains only explicitly enrolled people, is encrypted,
-   and `voices remove` deletes an entry and every derived identification.
+   and `voices remove` deletes an entry, nulls every assignment that referenced
+   it, and marks every affected summary, index row and published page stale,
+   with `publish` refusing them until regenerated.
 5. The reconciliation report shows zero recordings in Plaud missing from the
-   archive.
+   archive, including a recording synced a day late and one whose first
+   download failed.
+5a. `plaudport index rebuild` from manifests alone reproduces the index, and a
+   restore from the backup location has been exercised and hash-verified once.
 6. `npm test`, `npm run typecheck`, `npm run check:secrets`, and the sidecar
    tests pass in CI.
 
