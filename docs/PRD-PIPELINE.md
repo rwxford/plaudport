@@ -1,6 +1,6 @@
 # PRD — Plaud as Capture Device, Everything Else Local ("PlaudPort v2")
 
-**Status:** Draft v2 for review (2026-10-29; v1 revised the same day after design
+**Status:** Draft v3 for review (2026-10-29; v1 revised the same day after design
 review: id-based discovery with readiness states, versioned speaker assignments
 with downstream invalidation, ground-truth gates, backup/restore contract, P0
 library-access gate) · **Owner:** Ross Weatherford (rwxford) ·
@@ -165,13 +165,29 @@ Phase 2, still blocked on a credential).
   score alone.
 - FR8c. **Speaker assignments are versioned and corrections propagate.** Each
   recording stores an `assignments` record (diarized speaker → voice-library id
-  or null, score, library version, assigned_at). Any change to the voice
-  library (`rename`, `merge`, `remove`, threshold change, re-enrollment) or a
-  manual correction (`plaudport speakers set <id> SPEAKER_01 "Jane"`) bumps the
-  library version and marks every recording whose assignments referenced the
-  affected voice as **stale**. `voices remove` additionally nulls those
-  assignments so the name is gone from the transcript immediately; this is what
-  acceptance criterion 4 means by "every derived identification".
+  or null, score, runner-up id + score, library version, assigned_at, and
+  `source: auto | manual`). Any change to the voice library (`enroll`, `rename`,
+  `merge`, `remove`, threshold or margin change, re-enrollment) bumps the
+  library version. **Diarized speaker embeddings are stored per recording**, so
+  re-identification never requires re-running diarization.
+- FR8c-i. **Scope of re-identification.** A library change can affect
+  assignments that never referenced the changed voice: enrolling Jane can turn
+  a confident John match into a near-miss (FR8b), and a threshold change moves
+  unnamed speakers across the line in both directions. So on any library
+  change, every `auto` assignment in the archive is **re-scored** against the
+  new library from its stored embedding (cheap: a cosine per speaker per
+  recording). A recording is marked **stale** only when re-scoring changes an
+  outcome: a name gained, lost, or changed, or a confident match becoming
+  ambiguous. `rename` is the one exception: it is a label change with no
+  re-scoring, applied in place everywhere.
+- FR8c-ii. **Manual corrections win and persist.** `plaudport speakers set <id>
+  SPEAKER_01 "Jane"` (or `--unknown`) writes a `manual` assignment that
+  re-scoring never overrides. It is cleared only by an explicit
+  `speakers unset`, or by `voices remove` of that voice, which nulls both auto
+  and manual assignments for it so the name is gone immediately. This is what
+  acceptance criterion 4 means by "every derived identification". A manual
+  correction also records the owner's label as enrollment evidence (FR9) only
+  when the owner says so (`--enroll`), never implicitly.
 - FR8d. **Downstream invalidation.** A stale recording's summaries, FTS index
   rows, Notion page and vault pages are flagged stale together. `publish`
   refuses to push a stale recording and `mcp` returns it with `stale: true` and
@@ -179,6 +195,19 @@ Phase 2, still blocked on a credential).
   Regeneration of summaries stays explicit (FR13): `plaudport summarize --stale`
   lists and regenerates affected recordings in one command, so a correction is
   one command and one review, not a silent re-spend and not a lingering error.
+- FR8e. **Already-published errors are withdrawn, not left standing.** Blocking
+  the *next* publish is not enough when a wrong name is already on a Notion
+  page or in the vault. In the same run that marks a recording stale, the
+  publishers perform a cheap, LLM-free **retraction**: the recording's
+  participant list and speaker labels are rewritten from the current
+  assignments; summaries built on the old assignments are replaced by a visible
+  notice ("Summary withdrawn on <date>: speaker attribution changed; regenerate
+  with `plaudport summarize --stale`"), and the Notion page / vault frontmatter
+  gets `stale: true`. People pages (FR17) lose the backlink from that recording
+  when the name was removed or changed. When the owner regenerates, the
+  retraction is replaced and the flag cleared. If a publisher is unreachable
+  during retraction, the retraction is queued and `report` shows it as
+  **outstanding**, so a reader-visible wrong name is never silently tolerated.
 - FR9. Enrolling from a recording the owner already labelled is the primary
   path: the first run of a known meeting yields `Speaker 2 = Jane` in a minute of
   review; every later meeting with Jane is automatic.
@@ -203,17 +232,30 @@ Phase 2, still blocked on a credential).
 
 ### Publish
 - FR14. **Local store is canonical.** `<archive-root>/<YYYY>/<MM>/<id>-<slug>/`
-  holds `audio.mp3`, `transcript.json`, `transcript.md`, `summary-<template>.md`,
-  `assignments.json`, `plaud/` (whatever Plaud produced), `manifest.json`. Index
-  in SQLite. Canonical means it must be recoverable:
+  holds `audio.mp3`, `manifest.json` (pointer + hashes, FR14b), `plaud/`
+  (whatever Plaud produced), and revision directories each containing
+  `transcript.json`, `transcript.md`, `embeddings.json`, `assignments.json`,
+  `summary-<template>.md`. Index in SQLite. Canonical means it must be
+  recoverable:
   - FR14a. `PLAUDPORT_ARCHIVE_ROOT` is configurable and may point at an external
     or synced volume; the default under the repo is for development only, and
     `doctor` warns when the archive root is on the boot volume with no backup
     configured.
-  - FR14b. **Atomic writes.** Every file is written to a temp name and renamed;
-    `manifest.json` is written last and is the commit point for a recording.
-    A directory without a complete manifest is incomplete and is resumed, never
-    trusted.
+  - FR14b. **Atomic recording revisions, not just atomic files.** Per-file
+    temp-and-rename is necessary but not sufficient: an update that rewrites
+    `transcript.json` and crashes before `summary-*.md` would leave a complete
+    manifest pointing at a mixed revision. So a recording directory holds
+    immutable revision subdirectories (`rev-0001/`, `rev-0002/`, …), each
+    written in full (temp names, renamed, fsynced) before a single
+    `manifest.json` at the recording root is atomically replaced to point at
+    the new revision. `manifest.json` lists every artifact in the revision with
+    its sha256; readers validate the referenced artifacts against the manifest
+    and reject the revision (falling back to the previous pointer) on any
+    mismatch. Audio is written once and referenced by all revisions, never
+    rewritten. A revision directory not referenced by the manifest is
+    incomplete garbage and is cleaned up by `plaudport index rebuild`; the
+    previous N revisions (default 3) are kept so a correction can be inspected
+    or reverted.
   - FR14c. **The index is derived.** `plaudport index rebuild` reconstructs the
     SQLite database and FTS index from manifests alone; the database is never
     the only copy of anything. Manifests carry sha256 for audio and transcripts.
@@ -379,9 +421,11 @@ OWASP mapping in `PRD.md` §8 still applies. New in v2:
   changes.
 
 ### Gate after P2
-If local named-speaker accuracy is clearly worse than what Plaud had, pause and
-reassess the engine (embedding model, threshold, overlap handling) before
-building P3+ on top. Speaker identity is the feature that justifies the project;
+If the P2 exit criteria are not met on the held-out set (false identification
+rate above zero, unidentified rate for enrolled speakers above 10%, any name on
+an unenrolled participant, or DER materially worse than the reference
+engines' published figures), pause and reassess the engine (embedding model,
+threshold and margin, overlap handling) before building P3+ on top. Speaker identity is the feature that justifies the project;
 summaries without it are only a cheaper Plaud.
 
 ## 10. Risks
@@ -432,8 +476,12 @@ summaries without it are only a cheaper Plaud.
    unless cloud STT was double-enabled for a specific run.
 4. The voice library contains only explicitly enrolled people, is encrypted,
    and `voices remove` deletes an entry, nulls every assignment that referenced
-   it, and marks every affected summary, index row and published page stale,
-   with `publish` refusing them until regenerated.
+   it, re-scores all other auto assignments, marks every affected summary,
+   index row and published page stale, retracts the name from already-published
+   pages in the same run, and `publish` refuses them until regenerated. Manual
+   corrections to other speakers survive untouched.
+4a. Enrolling a new voice re-scores every existing auto assignment; a match
+   that becomes ambiguous under FR8b is unnamed and its recording marked stale.
 5. The reconciliation report shows zero recordings in Plaud missing from the
    archive, including a recording synced a day late and one whose first
    download failed.
