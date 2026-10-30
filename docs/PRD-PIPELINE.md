@@ -14,6 +14,24 @@ unpublished), while layer 3 regressed: users report the loss of voice profiles
 and no visible work on transcription accuracy. The hardware (layer 1) remains the
 best part of the product.
 
+What users are reporting (r/PlaudNoteUsers, "Enshittification of Plaud with 4.0",
+2026-10-29; the original was removed from r/PLAUDAI):
+
+- Speaker auto-tagging removed mid-subscription, without compensation; users on
+  Unlimited now hand-label every speaker.
+- AutoFlow, previously free, converted into a credit-metered paid feature.
+- A sudden spike in speech-to-text error rates after the engine change.
+- USB mass-storage access removed by policy "for security", so the device can
+  no longer be managed as a drive even where the hardware allowed it.
+- A new Terms of Service: Plaud buys employer, title, seniority and location
+  from data brokers for marketing; infers the user's organization from the email
+  domain and may share aggregate usage with that organization and with
+  prospective business customers; shares hashed emails with ad platforms; and
+  keeps **voiceprints** as the one category with its own retention rule.
+- Observed here on 2026-10-27: Plaud attributed a participant to the wrong real
+  person and invented a title for another from a name collision. A confidently
+  wrong name is worse than `Speaker 2`, because it poisons downstream notes.
+
 Today PlaudPort's job is to push audio **into** Plaud so the Plaud MCP can see
 it. That makes Plaud the system of record for every meeting, which is exactly
 the dependency to get out of.
@@ -112,6 +130,15 @@ Phase 2, still blocked on a credential).
   cosine similarity clears a configurable threshold; otherwise the speaker stays
   `Speaker N` and is listed under "unidentified" so it can be enrolled with one
   command from a known recording.
+- FR8a. **Never guess a name.** Identification is embedding-only; the pipeline
+  never infers a speaker's identity from names spoken in the transcript, from
+  calendar attendees, or from an LLM. Every assigned name carries its similarity
+  score; the summarizer receives names only above threshold and is instructed
+  to treat `Speaker N` as unknown, not to resolve it. This is the direct answer
+  to the 2026-10-27 misattribution in §1.
+- FR8b. A near-miss (second-best match within a configurable margin of the best)
+  is reported as ambiguous and left unnamed rather than resolved by the higher
+  score alone.
 - FR9. Enrolling from a recording the owner already labelled is the primary
   path: the first run of a known meeting yields `Speaker 2 = Jane` in a minute of
   review; every later meeting with Jane is automatic.
@@ -237,6 +264,13 @@ OWASP mapping in `PRD.md` §8 still applies. New in v2:
   a private repo, no audio, and the owner's judgement on Coder policy; the vault
   publisher is opt-in and the Notion/local options exist precisely so it can be
   skipped.
+- **What Plaud keeps.** Under the 2026-10 ToS, Plaud retains voiceprints with
+  its own retention rule and may infer and share organization-level usage from
+  the account's email domain. Neither is in this project's power to change, but
+  both argue for (a) the Apple-relay sign-in already in use, (b) requesting
+  deletion of Plaud-side voiceprints once the local library is proven, and
+  (c) treating Plaud's cloud as a transit buffer, not an archive: once a
+  recording is pulled and verified locally, nothing depends on it staying there.
 - **Prompt-injection surface.** Transcripts are untrusted text; the summarizer
   wraps them as data, and the MCP server returns them as data. Nothing in a
   transcript can trigger a publish or a push.
@@ -299,7 +333,10 @@ summaries without it are only a cheaper Plaud.
   GitHub repo and/or Notion? Owner to confirm before enabling either publisher
   for customer recordings.
 - **O7.** Is Apple's `SpeechAnalyzer` worth a third local engine? Spike, P1 or
-  later.
+  later. Same question for NVIDIA Nemotron ASR, which the community is already
+  trying as a local Plaud replacement.
+- **O8.** Can Plaud-side voiceprint data be deleted on request while keeping the
+  account? Ask support once P2 passes its gate.
 
 ## 12. Acceptance criteria
 
@@ -330,4 +367,5 @@ summaries without it are only a cheaper Plaud.
 - whispermlx (WhisperX on MLX, pyannote diarization) — https://pypi.org/project/whispermlx/
 - parakeet-mlx — https://github.com/EliFuzz/parakeet-mlx
 - Speaker diarization on Apple Silicon (pyannote / Sortformer / Nemotron) — https://soniqo.audio/guides/diarize
+- r/PlaudNoteUsers, "Enshittification of Plaud with 4.0 and recent updates" (2026-10-29) — https://www.reddit.com/r/PlaudNoteUsers/s/oV9quEQ1sL
 - Prior PRDs in this repo: `PRD.md` (Team consolidation), `PRD-SHARE-IMPORT.md`
