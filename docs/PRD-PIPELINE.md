@@ -1,11 +1,30 @@
 # PRD — Plaud as Capture Device, Everything Else Local ("PlaudPort v2")
 
-**Status:** Draft v4 for review (2026-10-29; v1 revised the same day after design
-review: id-based discovery with readiness states, versioned speaker assignments
-with downstream invalidation, ground-truth gates, backup/restore contract, P0
-library-access gate) · **Owner:** Ross Weatherford (rwxford) ·
+**Status:** Draft v5, approved to start P0 · **Owner:** Ross Weatherford (rwxford) ·
 **Priority:** primary. Supersedes `PRD-SHARE-IMPORT.md` as the main line of work;
 share import and the upload path (`UPLOAD-API.md`) become sub-features of this one.
+
+> **This document is the source of truth and it is allowed to change.** When
+> implementation finds that reality disagrees with a requirement, the fix is an
+> edit here (with a changelog entry) in the same PR as the code, not a
+> workaround in code that leaves the spec wrong. Numbers in §13 are defaults
+> to be validated, not decisions.
+
+### Changelog
+
+| Version | Date | Change | Driver |
+|---|---|---|---|
+| v1 | 2026-10-29 | Initial draft | Plaud 4.0 credits/regressions; owner decisions D1–D8 |
+| v2 | 2026-10-29 | FR1a–d id-based discovery with readiness states; FR8c–d versioned assignments + invalidation; FR14a–e backup/restore; ground-truth P1/P2 gates; P0 library-access gate | Independent review #1 (Codex) |
+| v3 | 2026-10-29 | FR8c-i/ii re-score all auto assignments, manual corrections persist; FR8e retraction of published errors; FR14b immutable revisions + atomic pointer; P2 gate cites measurable criteria | Independent review #2 (Codex) |
+| v4 | 2026-10-30 | FR10/10a–d all embeddings in the protected biometric store, unenrolled-embedding retention; FR14b manifest `current` + `history`; numeric DER bar | Independent review #3 (Codex) |
+| v5 | 2026-11-01 | Living-spec rule; §13 "Defaults to validate"; non-negotiables moved to `CLAUDE.md`; status → approved to start P0 | Process review before kickoff |
+
+**Review process.** Each revision is reviewed by an independent model (Codex
+Code Review) that has not seen the drafting conversation; findings are
+numbered and addressed in the next version. The document is "good enough"
+when remaining findings would be settled faster by building the next milestone
+than by rewriting prose; v4 reached that point for P0.
 
 ## 1. Problem
 
@@ -521,6 +540,31 @@ project; summaries without it are only a cheaper Plaud.
    restore from the backup location has been exercised and hash-verified once.
 6. `npm test`, `npm run typecheck`, `npm run check:secrets`, and the sidecar
    tests pass in CI.
+
+## 13. Defaults to validate
+
+Every number below is a starting guess chosen to make the requirement concrete,
+not a measured result. Each is a config value with the name shown, and each has
+a named milestone where evidence replaces the guess. Changing one is a PRD edit
+with a changelog line, not a silent config tweak.
+
+| Default | Value | Config | Where it is in the PRD | Validate in | How |
+|---|---|---|---|---|---|
+| Discovery overlap window | 14 days | `PLAUDPORT_PULL_OVERLAP_DAYS` | FR1a | P0 | Measure the longest observed gap between `start_at` and first appearance in `list_files` over a month; set to 2× that |
+| Plaud-text pending age-out | 7 days | `PLAUDPORT_PLAUD_TEXT_TIMEOUT_DAYS` | FR1b | P0 | Observe how long Plaud takes to attach a transcript; if it never exceeds 48 h, shorten |
+| Retry escalation threshold | N = 3 failures before `report` flags | `PLAUDPORT_RETRY_REPORT_AFTER` | FR1c | P0 | Tune so transient CDN errors do not page the owner but real breakage does within a day |
+| Cloud STT double gate | env + `--cloud` | `PLAUDPORT_ALLOW_CLOUD_STT` | FR5 | P1 | Not a number; confirm no code path reaches a cloud engine without both |
+| Identification similarity threshold | engine-dependent, start 0.70 cosine | `PLAUDPORT_ID_THRESHOLD` | FR8 | P2 | Sweep on the held-out set; pick the highest threshold that keeps unidentified rate ≤ 10% with zero false identifications |
+| Ambiguity margin | 0.05 cosine | `PLAUDPORT_ID_MARGIN` | FR8b | P2 | Same sweep; count near-misses that would have been wrong names |
+| Unidentified rate for enrolled speakers | ≤ 10% of speaking time | — (exit bar) | P2 exit, gate | P2 | If the sweep cannot reach 10% at zero false IDs, the bar moves and the PRD says why |
+| DER bar | ≤ 15% | — (exit bar) | P2 exit, gate | P2 | Measured on the owner's labelled excerpts; published pyannote figures are context |
+| Unenrolled-embedding retention | 90 days | `PLAUDPORT_BIOMETRIC_RETENTION_DAYS` | FR10a | P2–P3 | Count how often an unenrolled speaker from > 30 days ago gets enrolled later; if rarely, shorten toward 30 |
+| Retained revisions | 3 | `PLAUDPORT_REVISION_HISTORY` | FR14b | P3 | Check whether any revert ever needed more than 1 |
+| Reference-set size | 5 recordings × 5-min excerpts | — | P1 exit | P1 | If WER variance across excerpts is high, grow the set before trusting the number |
+| Held-out evaluation set | enroll on 3 meetings, evaluate on 10 | — | P2 exit | P2 | Grow until false-ID rate has been zero across at least 20 distinct speaker-turns per enrolled person |
+| Throughput target | 60-min recording < 5 min; 3–4 h/day < 20 min | — (NFR3) | NFR3 | P1–P2 | Measure on the M4; if pyannote is the long pole, that decides the O2 engine-path question |
+| Peak memory | < 8 GB | — (NFR4) | NFR4 | P1–P2 | Measure with engines sequential; if exceeded, smaller models before concurrency changes |
+| Scheduler cadence | hourly on AC power; weekly `--reconcile` | `PLAUDPORT_SCHEDULE_*` | FR20, FR1d | P5 | Compare pull latency against how soon the owner actually wants notes |
 
 ## References
 
