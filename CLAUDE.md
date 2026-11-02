@@ -8,8 +8,9 @@ documents that hold the detail rather than repeating them.
 PlaudPort is a local-first, single-user tool around Plaud recordings. The
 current line of work is **`docs/PRD-PIPELINE.md`** ("v2"): Plaud is the capture
 device and transit buffer; a local archive on the owner's Mac is the system of
-record; transcription, speaker identity, summaries and publishing happen
-locally. Older PRDs (`docs/PRD.md`, `docs/PRD-SHARE-IMPORT.md`) describe
+record; transcription and speaker identity run locally; orchestration,
+storage and publishing are local; Claude processes transcript text for
+summaries (D5), which is the one place meeting text leaves the Mac by design. Older PRDs (`docs/PRD.md`, `docs/PRD-SHARE-IMPORT.md`) describe
 sub-features that still exist (share import, upload to Plaud).
 
 ## The spec is the source of truth, and it changes
@@ -39,9 +40,27 @@ sub-features that still exist (share import, upload to Plaud).
    Plaud must also be exercised by the fake-Plaud self-test
    (`scripts/demo.mjs`) so it runs without an account. Exit gates in PRD §9
    are the acceptance tests for a milestone; list them explicitly in the plan.
-3. **Reviews are independent.** The PRD and each plan are reviewed by a model
-   that has not seen the drafting conversation (currently Codex Code Review).
-   Address findings by number in the next revision. Do not self-certify.
+3. **Reviews are independent, at every stage.** The PRD, each milestone
+   plan, **and each implementation PR** are reviewed by a model that has not
+   seen the drafting conversation (currently Codex Code Review, fresh
+   context). For a PR, the review is of the final diff against the approved
+   plan and the FRs it cites, not only against the tests; passing tests do
+   not prove the design was followed. Address findings by number. Before
+   merge, record in the PR description the reviewed commit SHA and the
+   disposition of every finding (fixed / declined with reason / deferred to
+   a named follow-up). Do not self-certify, and do not count a review from
+   inside the drafting conversation as independent.
+3a. **Evidence has three classes; never blur them.** (a) *Automated tests*
+   (unit + fake-Plaud self-test) prove logic without an account. (b)
+   *Live-account verification* proves behaviour against the owner's real
+   Plaud library (paging, URL expiry, late sync) and can only be run by the
+   owner or with their configured credentials. (c) *Ongoing calibration*
+   replaces a PRD §13 default with evidence over days or weeks. A plan and a
+   PR state which class each check belongs to, list prerequisites, and
+   record any unperformed check as **pending**, with who runs it and when.
+   A simulated check never counts as live verification, and a milestone can
+   install measurement for a calibration without claiming the default is
+   validated.
 4. **Small, green commits.** Before every commit:
    `npm run typecheck && npm test && npm run check:secrets`. Push at the end
    of each working block. Never commit to `main` directly; work on the

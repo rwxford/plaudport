@@ -1,6 +1,6 @@
 # PRD — Plaud as Capture Device, Everything Else Local ("PlaudPort v2")
 
-**Status:** Draft v5, approved to start P0 · **Owner:** Ross Weatherford (rwxford) ·
+**Status:** Draft v6, approved to start P0 planning · **Owner:** Ross Weatherford (rwxford) ·
 **Priority:** primary. Supersedes `PRD-SHARE-IMPORT.md` as the main line of work;
 share import and the upload path (`UPLOAD-API.md`) become sub-features of this one.
 
@@ -19,12 +19,17 @@ share import and the upload path (`UPLOAD-API.md`) become sub-features of this o
 | v3 | 2026-10-29 | FR8c-i/ii re-score all auto assignments, manual corrections persist; FR8e retraction of published errors; FR14b immutable revisions + atomic pointer; P2 gate cites measurable criteria | Independent review #2 (Codex) |
 | v4 | 2026-10-30 | FR10/10a–d all embeddings in the protected biometric store, unenrolled-embedding retention; FR14b manifest `current` + `history`; numeric DER bar | Independent review #3 (Codex) |
 | v5 | 2026-11-01 | Living-spec rule; §13 "Defaults to validate"; non-negotiables moved to `CLAUDE.md`; status → approved to start P0 | Process review before kickoff |
+| v6 | 2026-11-01 | §13 evidence classes (automated / live-account / calibration; pending state); `CLAUDE.md` extends independent review to implementation PRs with recorded SHA + disposition, and corrects the summaries-are-local wording | Independent review #4 (Codex), of `8c60cfc` |
 
-**Review process.** Each revision is reviewed by an independent model (Codex
-Code Review) that has not seen the drafting conversation; findings are
-numbered and addressed in the next version. The document is "good enough"
-when remaining findings would be settled faster by building the next milestone
-than by rewriting prose; v4 reached that point for P0.
+**Review process.** Each revision is reviewed by a model other than the one
+drafting it (Codex), working from the committed document rather than the
+drafting conversation; findings are numbered and addressed in the next
+version, and the changelog records the reviewed commit from v6 onward. From
+P0 onward, plans and implementation PRs get the same treatment, as fresh-
+context Codex Code Review runs (see `CLAUDE.md` §"How we work" 3). The
+document is "good enough" when remaining findings would be settled faster by
+building the next milestone than by rewriting prose; v4 reached that point for
+P0, and v5–v6 are process, not design, changes.
 
 ## 1. Problem
 
@@ -547,6 +552,20 @@ Every number below is a starting guess chosen to make the requirement concrete,
 not a measured result. Each is a config value with the name shown, and each has
 a named milestone where evidence replaces the guess. Changing one is a PRD edit
 with a changelog line, not a silent config tweak.
+
+**Three classes of evidence, kept separate.** (a) *Automated tests* run without
+a Plaud account and prove logic. (b) *Live-account verification* runs against
+the owner's real library and proves behaviour that cannot be simulated
+(paging over > 500 recordings, presigned-URL expiry, late device sync). (c)
+*Ongoing calibration* replaces a default with measurements taken over days or
+weeks. The "Validate in" column names the milestone that **installs the
+measurement**; where the method needs a month of observation, the milestone's
+exit records the default as *pending calibration* with the measurement in
+place, not as validated. Milestone exit gates (§9) may be met with (a) + (b);
+no (c) item blocks a gate. Every plan and PR lists each check with its class,
+its prerequisites (credentials, library size, elapsed time), and, if not yet
+performed, **pending** plus who runs it and when. A simulated check is never
+recorded as live verification.
 
 | Default | Value | Config | Where it is in the PRD | Validate in | How |
 |---|---|---|---|---|---|
