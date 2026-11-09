@@ -1,6 +1,6 @@
 # PRD — Plaud as Capture Device, Everything Else Local ("PlaudPort v2")
 
-**Status:** Draft v9, approved to start P0 (plan in re-review) · **Owner:** Ross Weatherford (rwxford) ·
+**Status:** v9, approved · P0 plan **approved for implementation** · **Owner:** Ross Weatherford (rwxford) ·
 **Priority:** primary. Supersedes `PRD-SHARE-IMPORT.md` as the main line of work;
 share import and the upload path (`UPLOAD-API.md`) become sub-features of this one.
 
