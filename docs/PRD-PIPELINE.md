@@ -1,6 +1,6 @@
 # PRD — Plaud as Capture Device, Everything Else Local ("PlaudPort v2")
 
-**Status:** Draft v8, approved to start P0 (plan in re-review) · **Owner:** Ross Weatherford (rwxford) ·
+**Status:** Draft v9, approved to start P0 (plan in re-review) · **Owner:** Ross Weatherford (rwxford) ·
 **Priority:** primary. Supersedes `PRD-SHARE-IMPORT.md` as the main line of work;
 share import and the upload path (`UPLOAD-API.md`) become sub-features of this one.
 
@@ -22,6 +22,7 @@ share import and the upload path (`UPLOAD-API.md`) become sub-features of this o
 | v6 | 2026-11-01 | §13 evidence classes (automated / live-account / calibration; pending state); `CLAUDE.md` extends independent review to implementation PRs with recorded SHA + disposition, and corrects the summaries-are-local wording | Independent review #4 (Codex), of `8c60cfc` |
 | v7 | 2026-11-09 | FR1b → **per-artifact** Plaud-text readiness (a transcript arriving before its note no longer freezes the bundle); FR14b gains the **single-writer archive lock** and the **power-loss `fsync` ordering** (nested dirs + recording dir after renames); FR14c **scopes** "derived/rebuildable" to the recording state (`recordings`, per-artifact readiness, lag samples) and names `runs`/`defects` as observational, not reproduced | P0-PLAN v1 review — Codex request-changes (C1–C6) + working-agent read (W1–W3); see `P0-PLAN.md` §0 |
 | v8 | 2026-11-09 | FR14b writer lock → **renewed lease with fencing** (no takeover on age alone; an epoch fence aborts a reclaimed writer's writes) and adds **newly-created parent-dir `fsync`** to the ordering; FR14c adds **manifest-as-authority + idempotent discovery** (crash between manifest commit and ledger update is recovered by an ordinary `pull`) | P0-PLAN v2 review — Codex request-changes (R2-1…R2-4 + G7/T11 cleanup); see `P0-PLAN.md` §0 |
+| v9 | 2026-11-09 | FR14b lock → **OS-held exclusive lock** (held across suspension, released on exit) replacing the user-space lease+fence, which had a check-then-write TOCTOU; and names a dir with **no committed manifest** an *interrupted initialization* (recovered under the lock), distinct from a corrupt committed manifest | P0-PLAN v3 review — Codex request-changes (R3-1 fencing TOCTOU, R3-2 interrupted init); see `P0-PLAN.md` §0 |
 
 **Review process.** Each revision is reviewed by a model other than the one
 drafting it (Codex), working from the committed document rather than the
@@ -318,15 +319,20 @@ Phase 2, still blocked on a credential).
     aborted write and is safe to delete. Retention trimming (dropping the
     oldest history entry) happens in the same atomic manifest swap that adds a
     new revision, never as a separate pass that could race with a reader.
-    **All mutators serialize under a single archive writer lease with fencing**
+    **All mutators serialize under a single OS-held exclusive archive lock**
     (`pull`, `reconcile`, `index rebuild`, cleanup), so revision numbers cannot
     collide and no writer's cleanup can delete another writer's uncommitted
-    revision. The lease is **renewed by a heartbeat** and may be taken over only
-    when the holder's pid is dead on this host **or** the lease has expired
-    (missed heartbeats) — **never because the lease is merely old**, so a long
-    legitimate backfill is not stolen. Takeover bumps a **fence (`epoch`)** that
-    every write re-checks, so a suspended writer that wakes after reclamation
-    **aborts rather than corrupting**. The `fsync` ordering is the crash-safety
+    revision. The lock is held by the kernel for the life of the process: it
+    **stays held while the process is suspended** and is **released only on
+    process exit** (clean, crash, or kill). There is therefore no moment when two
+    processes both hold it and no user-space check-then-write to race — a merely
+    slow or suspended backfill is never taken over, and a crashed one frees the
+    lock for the next run even though its lock *file* remains. Age is never a
+    takeover trigger. (Single-host writes are assumed; advisory locks are not
+    relied on across machines.) A recording directory with **no committed
+    manifest** is an *interrupted initialization*, completed or restarted under
+    the lock — distinct from a *corrupt committed* manifest, which falls back to
+    history or is reported corrupt. The `fsync` ordering is the crash-safety
     contract and must cover **each file, each nested artifact directory, the
     revision directory, the recording directory after every rename** (revision
     and manifest), **and each newly-created parent directory up to a
