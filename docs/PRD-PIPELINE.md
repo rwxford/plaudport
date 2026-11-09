@@ -1,6 +1,6 @@
 # PRD — Plaud as Capture Device, Everything Else Local ("PlaudPort v2")
 
-**Status:** Draft v6, approved to start P0 planning · **Owner:** Ross Weatherford (rwxford) ·
+**Status:** Draft v7, approved to start P0 (plan in re-review) · **Owner:** Ross Weatherford (rwxford) ·
 **Priority:** primary. Supersedes `PRD-SHARE-IMPORT.md` as the main line of work;
 share import and the upload path (`UPLOAD-API.md`) become sub-features of this one.
 
@@ -20,6 +20,7 @@ share import and the upload path (`UPLOAD-API.md`) become sub-features of this o
 | v4 | 2026-10-30 | FR10/10a–d all embeddings in the protected biometric store, unenrolled-embedding retention; FR14b manifest `current` + `history`; numeric DER bar | Independent review #3 (Codex) |
 | v5 | 2026-11-01 | Living-spec rule; §13 "Defaults to validate"; non-negotiables moved to `CLAUDE.md`; status → approved to start P0 | Process review before kickoff |
 | v6 | 2026-11-01 | §13 evidence classes (automated / live-account / calibration; pending state); `CLAUDE.md` extends independent review to implementation PRs with recorded SHA + disposition, and corrects the summaries-are-local wording | Independent review #4 (Codex), of `8c60cfc` |
+| v7 | 2026-11-09 | FR1b → **per-artifact** Plaud-text readiness (a transcript arriving before its note no longer freezes the bundle); FR14b gains the **single-writer archive lock** and the **power-loss `fsync` ordering** (nested dirs + recording dir after renames); FR14c **scopes** "derived/rebuildable" to the recording state (`recordings`, per-artifact readiness, lag samples) and names `runs`/`defects` as observational, not reproduced | P0-PLAN v1 review — Codex request-changes (C1–C6) + working-agent read (W1–W3); see `P0-PLAN.md` §0 |
 
 **Review process.** Each revision is reviewed by a model other than the one
 drafting it (Codex), working from the committed document rather than the
@@ -138,12 +139,18 @@ Phase 2, still blocked on a credential).
   configurable period (default 14 days) before the newest known recording, plus
   any ids still in a non-final state. Every id seen is upserted into the ledger
   before any download starts, so a crash cannot lose knowledge of a recording.
-- FR1b. **Per-recording readiness states, tracked separately** for audio and for
-  Plaud's derived data: `discovered → audio_pending → audio_ok | audio_failed`
-  and `plaud_text_pending → plaud_text_ok | plaud_text_absent`. Plaud transcribes
-  asynchronously, so a recording's audio may be archived long before its
-  transcript exists; `pull` re-checks `plaud_text_pending` ids on every run
-  until they resolve or age out (configurable; default 7 days → `absent`).
+- FR1b. **Readiness states, tracked separately** for audio and for Plaud's
+  derived data: `discovered → audio_pending → audio_ok | audio_failed` for audio,
+  and **per-artifact** for Plaud text. Plaud produces up to five derived
+  artifacts — transcript, polished transcript, outline, highlights (`mark_memo`),
+  and the AI note — **asynchronously and independently**, so one can exist long
+  before another. Each is tracked `pending → present | absent` on its own; the
+  recording's text bundle is `pending` while any artifact is still pending and
+  the bundle has not aged out, `ok` once all are present-or-absent, `absent` only
+  if all aged out. `pull` re-checks **each still-pending artifact** on every run
+  until it resolves or the bundle ages out (configurable; default 7 days →
+  `absent`). Marking the bundle complete on the first artifact to arrive would
+  silently drop the rest, so readiness is never a single per-recording flag.
 - FR1c. **Persistent retries by id.** `audio_failed` and expired-URL cases are
   retried with backoff on subsequent runs, indefinitely, and surfaced in `report`
   after N failures. A presigned URL that expired mid-download is re-fetched,
@@ -310,9 +317,27 @@ Phase 2, still blocked on a credential).
     aborted write and is safe to delete. Retention trimming (dropping the
     oldest history entry) happens in the same atomic manifest swap that adds a
     new revision, never as a separate pass that could race with a reader.
+    **All mutators serialize under a single archive writer lock** (`pull`,
+    `reconcile`, `index rebuild`, cleanup), so revision numbers cannot collide
+    and no writer's cleanup can delete another writer's uncommitted revision; a
+    stale lock (dead pid or aged out) is broken with a warning. The `fsync`
+    ordering is the crash-safety contract and must cover **each file, each
+    nested artifact directory, the revision directory, and the recording
+    directory after every rename** (revision and manifest), with audio made
+    durable before the manifest that references it. File `fsync` + rename
+    survives a **process crash**; the directory `fsync`s are what extend the
+    guarantee to **power loss**, and the PRD does not call the archive
+    power-loss-safe without them.
   - FR14c. **The index is derived.** `plaudport index rebuild` reconstructs the
     SQLite database and FTS index from manifests alone; the database is never
     the only copy of anything. Manifests carry sha256 for audio and transcripts.
+    "Derived" names exactly the **recording state**: the `recordings` rows, the
+    per-artifact readiness, and the sync-lag samples (all recomputable from
+    manifests + each recording's persisted `firstSeenAt`). Observational
+    run-history (`runs`, `defects`) is **not** reproduced by a rebuild and is not
+    claimed to be; a from-scratch rebuild restores the archive's state, not its
+    audit log. Any "identical after rebuild" test compares the derived tables
+    only.
   - FR14d. **Verified restore.** `plaudport backup verify <path>` restores a
     sample of recordings from a backup location into a scratch root and checks
     hashes. Documented in `docs/BACKUP.md` before P6; §8's "Plaud as transit
