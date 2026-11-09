@@ -1,6 +1,6 @@
 # PRD — Plaud as Capture Device, Everything Else Local ("PlaudPort v2")
 
-**Status:** Draft v7, approved to start P0 (plan in re-review) · **Owner:** Ross Weatherford (rwxford) ·
+**Status:** Draft v8, approved to start P0 (plan in re-review) · **Owner:** Ross Weatherford (rwxford) ·
 **Priority:** primary. Supersedes `PRD-SHARE-IMPORT.md` as the main line of work;
 share import and the upload path (`UPLOAD-API.md`) become sub-features of this one.
 
@@ -21,6 +21,7 @@ share import and the upload path (`UPLOAD-API.md`) become sub-features of this o
 | v5 | 2026-11-01 | Living-spec rule; §13 "Defaults to validate"; non-negotiables moved to `CLAUDE.md`; status → approved to start P0 | Process review before kickoff |
 | v6 | 2026-11-01 | §13 evidence classes (automated / live-account / calibration; pending state); `CLAUDE.md` extends independent review to implementation PRs with recorded SHA + disposition, and corrects the summaries-are-local wording | Independent review #4 (Codex), of `8c60cfc` |
 | v7 | 2026-11-09 | FR1b → **per-artifact** Plaud-text readiness (a transcript arriving before its note no longer freezes the bundle); FR14b gains the **single-writer archive lock** and the **power-loss `fsync` ordering** (nested dirs + recording dir after renames); FR14c **scopes** "derived/rebuildable" to the recording state (`recordings`, per-artifact readiness, lag samples) and names `runs`/`defects` as observational, not reproduced | P0-PLAN v1 review — Codex request-changes (C1–C6) + working-agent read (W1–W3); see `P0-PLAN.md` §0 |
+| v8 | 2026-11-09 | FR14b writer lock → **renewed lease with fencing** (no takeover on age alone; an epoch fence aborts a reclaimed writer's writes) and adds **newly-created parent-dir `fsync`** to the ordering; FR14c adds **manifest-as-authority + idempotent discovery** (crash between manifest commit and ledger update is recovered by an ordinary `pull`) | P0-PLAN v2 review — Codex request-changes (R2-1…R2-4 + G7/T11 cleanup); see `P0-PLAN.md` §0 |
 
 **Review process.** Each revision is reviewed by a model other than the one
 drafting it (Codex), working from the committed document rather than the
@@ -317,17 +318,22 @@ Phase 2, still blocked on a credential).
     aborted write and is safe to delete. Retention trimming (dropping the
     oldest history entry) happens in the same atomic manifest swap that adds a
     new revision, never as a separate pass that could race with a reader.
-    **All mutators serialize under a single archive writer lock** (`pull`,
-    `reconcile`, `index rebuild`, cleanup), so revision numbers cannot collide
-    and no writer's cleanup can delete another writer's uncommitted revision; a
-    stale lock (dead pid or aged out) is broken with a warning. The `fsync`
-    ordering is the crash-safety contract and must cover **each file, each
-    nested artifact directory, the revision directory, and the recording
-    directory after every rename** (revision and manifest), with audio made
-    durable before the manifest that references it. File `fsync` + rename
-    survives a **process crash**; the directory `fsync`s are what extend the
-    guarantee to **power loss**, and the PRD does not call the archive
-    power-loss-safe without them.
+    **All mutators serialize under a single archive writer lease with fencing**
+    (`pull`, `reconcile`, `index rebuild`, cleanup), so revision numbers cannot
+    collide and no writer's cleanup can delete another writer's uncommitted
+    revision. The lease is **renewed by a heartbeat** and may be taken over only
+    when the holder's pid is dead on this host **or** the lease has expired
+    (missed heartbeats) — **never because the lease is merely old**, so a long
+    legitimate backfill is not stolen. Takeover bumps a **fence (`epoch`)** that
+    every write re-checks, so a suspended writer that wakes after reclamation
+    **aborts rather than corrupting**. The `fsync` ordering is the crash-safety
+    contract and must cover **each file, each nested artifact directory, the
+    revision directory, the recording directory after every rename** (revision
+    and manifest), **and each newly-created parent directory up to a
+    pre-existing archive ancestor**, with audio made durable before the manifest
+    that references it. File `fsync` + rename survives a **process crash**; the
+    directory `fsync`s are what extend the guarantee to **power loss**, and the
+    PRD does not call the archive power-loss-safe without them.
   - FR14c. **The index is derived.** `plaudport index rebuild` reconstructs the
     SQLite database and FTS index from manifests alone; the database is never
     the only copy of anything. Manifests carry sha256 for audio and transcripts.
@@ -337,7 +343,12 @@ Phase 2, still blocked on a credential).
     run-history (`runs`, `defects`) is **not** reproduced by a rebuild and is not
     claimed to be; a from-scratch rebuild restores the archive's state, not its
     audit log. Any "identical after rebuild" test compares the derived tables
-    only.
+    only. **The manifest is the authority:** on any disagreement between a
+    recording's manifest and its ledger row, the manifest wins, and the row is
+    re-derived from it. Discovery is therefore **idempotent** — a recording whose
+    manifest already exists is adopted, never re-initialized — so a crash between
+    writing the initial manifest and updating the ledger is recovered by the next
+    ordinary `pull`, not only by an explicit rebuild.
   - FR14d. **Verified restore.** `plaudport backup verify <path>` restores a
     sample of recordings from a backup location into a scratch root and checks
     hashes. Documented in `docs/BACKUP.md` before P6; §8's "Plaud as transit

@@ -1,8 +1,8 @@
 # P0 Plan — Pull
 
-**Milestone:** P0 of `PRD-PIPELINE.md` · **Status:** Draft v2, revised after
-independent review (Codex, of `fa7bd06`) and a working-agent read; **for
-re-review**, 2026-11-09 · **Implements:** FR1, FR1a–d, FR2 (interface +
+**Milestone:** P0 of `PRD-PIPELINE.md` · **Status:** Draft v3, revised after two
+independent reviews (Codex, of `fa7bd06` and `d7229f5`) and a working-agent read;
+**for re-review**, 2026-11-09 · **Implements:** FR1, FR1a–d, FR2 (interface +
 `plaud-mcp` adapter), FR3, FR14, FR14a–c, FR21 (partial), FR22 (partial) ·
 **Does not touch:** anything in P1+ (no transcription, diarization, biometric
 store, summaries, publishers, MCP server).
@@ -30,6 +30,19 @@ same PR, per the living-spec rule.
 | W1 | `npx -y @plaud-ai/mcp@<pinned>` on every (hourly, unattended) run adds a resolve/network round-trip and fails offline. | **Pin-install once** into a managed location; the adapter execs the resolved entry directly; `doctor` verifies installed vs. pinned version. No per-run `npx` resolution. | §2 (P0-D1), §5 |
 | W2 | `better-sqlite3` is the project's first native dependency and meets the just-merged Homebrew install. | Noted: `npm ci` builds/fetches it per-arch under Homebrew's pinned Node (same class as `tsx`/`esbuild`); `doctor` checks the native build. | §2 (P0-D7), §8 (T10), §10 (R6) |
 | W3 | The default archive root holds a content-bearing ledger (real titles); and a bare first `pull` only reaches back `OVERLAP_DAYS`. | Default archive root is **gitignored** (T1); README's "Pull your library" notes the first-run window and backfill via `--all`/`--since`. | §8 (T1), §11 |
+
+### Review response (v2 → v3)
+
+A second Codex review of v2 (`d7229f5`) kept request-changes with four residual
+P1 gaps (R2-1…R2-4) and a consistency cleanup. Resolutions:
+
+| # | Finding | Resolution | Where |
+|---|---|---|---|
+| R2-1 | **[P1]** An old-but-alive lock can be stolen (age-based takeover restores C3). | Lock becomes a **renewed lease with fencing**: the holder heartbeats `renewedAt` and stamps an `epoch`; a lock is stealable only when its pid is provably dead on this host **or** its lease (`renewedAt`) has expired — **never on `startedAt` age**, so a long legitimate backfill that keeps renewing is never stolen. Takeover bumps the `epoch`; every write re-checks it still holds the current epoch and **aborts if fenced out**, so a suspended process that wakes cannot write under a stolen lock. | P0-D8, §6, T2a, PRD FR14b |
+| R2-2 | **[P1]** Aged-out bundles are excluded from selection before their artifacts can flip to `absent`, so a bundle that crosses the timeout between runs stays `pending` forever. | Step 4 now selects **every `pending` bundle regardless of age**; overdue artifacts resolve to `absent` **without fetching**, those still within the timeout are fetched. | §4, §7 step 4, T7 |
+| R2-3 | **[P1]** Manifest-first discovery has no recovery from a stale ledger: a crash after the manifest commit but before the UPSERT makes the next pull re-initialize the id. | Discovery write is **idempotent and manifest-authoritative**: if a recording dir/manifest already exists it is **adopted** (ledger reconciled from the manifest), never re-initialized; a startup per-recording reconcile makes the manifest win over any stale/older ledger row. | §7 step 2, T7 |
+| R2-4 | **[P1]** Initial discovery fsyncs the recording dir but not the newly-created `<YYYY>/<MM>` parents, so power loss can lose the path. | The protocol now **fsyncs each newly-created directory up through the nearest pre-existing archive ancestor**; the ordering test covers it. Reflected in FR14b. | §6, T2, PRD FR14b |
+| cleanup | G7/T11 still said "identical whole-ledger dump" while §3 limits equality to derived tables. | G7 and T11 now compare the **derived tables only**. | §8 (T11), §9 (G7) |
 
 ## 1. Findings that shape the plan
 
@@ -61,7 +74,7 @@ Plaud's published package or docs.
 | P0-D5 | P0 writes revision `rev-0001/` containing only `plaud/` text artifacts and the recording's `meta.json`; `audio.mp3` is written once at the recording root. The revision/manifest machinery (FR14b) is built in full in P0 even though P0 produces one revision, because P1+ will add revisions and the atomicity contract must be tested now. | Build the invariant before anyone depends on it. |
 | P0-D6 | No web UI changes in P0. CLI only. | Scope. |
 | P0-D7 | New dependencies: `better-sqlite3` (ledger), `@modelcontextprotocol/sdk` (MCP client). `@plaud-ai/mcp` is **not** a runtime dependency; it is pin-installed and exec'd (P0-D1) so Plaud's updates do not silently change behaviour. | Minimal footprint, pinned. **`better-sqlite3` is the repo's first native dependency** (W2): under the Homebrew formula now on `main`, `npm ci` builds or fetches a prebuilt binary matching Homebrew's pinned Node ABI, the same per-arch install class as `tsx`/`esbuild`; `doctor` verifies the native build (T10, R6). |
-| P0-D8 | **One archive-level exclusive writer lock** (`<archive-root>/.plaudport/lock`) guards every mutating operation — `pull`, `reconcile`, `index rebuild`, and the cleanup pass. Acquired at the start of the run, released at the end; held across discovery, download, revision writes and cleanup. Revision-number allocation reads existing `rev-*` dirs **under the lock**, so two runs cannot choose the same number. A lock file records `{pid, host, startedAt}`; a lock is **stale** (and broken with a WARN) only when its host matches and its pid is dead, or its `startedAt` is older than `PLAUDPORT_LOCK_STALE_HOURS` (default 6). A second `pull` while one holds the lock exits 3 ("archive busy"), it does not wait. | C3. Single-writer is sufficient for a single-user tool and removes every revision-number race and cross-writer cleanup hazard outright; a coarse lock is simpler to reason about than per-recording locks and is the honest shape for scheduled runs. |
+| P0-D8 | **One archive-level exclusive writer lease, with fencing** (`<archive-root>/.plaudport/lock`) guards every mutating operation — `pull`, `reconcile`, `index rebuild`, and the cleanup pass. The lock file records `{pid, host, bootId, startedAt, renewedAt, epoch}`. The holder **renews `renewedAt` every `PLAUDPORT_LOCK_HEARTBEAT_SECONDS`** (default 60) for as long as it works. A contender may take over **only** when (a) the lock's `host`+`bootId` match this machine and its `pid` is dead (definitive proof the owner is gone), **or** (b) the lease has expired — `now − renewedAt > PLAUDPORT_LOCK_LEASE_SECONDS` (default 180, ≥ 3× heartbeat). **Age of `startedAt` never triggers takeover** (R2-1): a legitimate multi-hour backfill keeps renewing and is never stolen. Takeover writes a **new `epoch`** and WARNs. **Fencing:** the holder re-reads the lock and checks `epoch` is still its own immediately before each revision/manifest/cleanup write; if it has changed, the run **aborts with "lock lost"** rather than writing — so a suspended process that wakes after its lease was reclaimed cannot corrupt the archive. Revision-number allocation reads existing `rev-*` dirs under the held lease. A second `pull` facing a live lease exits 3 ("archive busy"); it does not wait. | C3, R2-1. Single-writer is sufficient for a single-user tool; a renewed lease with fencing is the honest way to tell "crashed/suspended" from "slow but alive" without stomping a live writer. |
 | P0-D9 | **The archive, not the ledger, is the durable record, and it is written manifest-first.** On first sight of an id, `pull` writes `rev-0001/meta.json` and a `manifest.json` (states `audio_pending`, all Plaud-text artifacts `pending`) **before any download**. The SQLite ledger is a derived index rebuilt from manifests (FR14c). Plaud's derived text is tracked **per artifact**, and each artifact that later arrives is written as a new immutable revision. | C1, C2. A durable per-id record before network work means a crash cannot lose a discovered id; per-artifact readiness means a transcript arriving before its note does not freeze the bundle "complete." |
 
 ## 3. Ledger schema (SQLite)
@@ -201,7 +214,10 @@ pending ──artifact has non-empty content──▶ present
   once all five are present-or-absent; `plaud_text_absent` only if all five
   aged out to absent; else `plaud_text_pending`. Checks are capped per run
   (`PLAUDPORT_TEXT_CHECKS_PER_RUN`, default 200 recordings) so a backlog cannot
-  starve discovery, oldest `text_pending_since` first.
+  starve discovery, oldest `text_pending_since` first. A bundle that crosses the
+  timeout between runs is still selected (§7 step 4 selects every `pending`
+  bundle **regardless of age**); its overdue artifacts resolve to `absent`
+  **without a fetch**, so it resolves instead of stalling `pending` forever (R2-2).
 - An aged-out artifact is terminal for automation but `pull --recheck-text <id>`
   (or `--recheck-text --all`) reopens the recording's still-`absent` artifacts
   (Plaud transcribes late when minutes refresh at the month boundary — expected
@@ -289,21 +305,30 @@ at a `rev-0001` that contains only `meta.json`. This is the durable record C1
 requires; audio and each Plaud artifact fill in on later runs, each as a new
 revision (§4).
 
-**Concurrency (C3).** Every mutating operation runs **under the archive writer
-lock** (P0-D8). Because there is only ever one writer, revision numbers cannot
-collide and cleanup cannot race another writer's uncommitted revision. The lock
-is acquired before step 0 and released after step 4; `index rebuild` and the
-cleanup pass take it too.
+**Concurrency (C3, R2-1).** Every mutating operation runs **under the archive
+writer lease with fencing** (P0-D8). Because there is only ever one live writer,
+revision numbers cannot collide and cleanup cannot race another writer's
+uncommitted revision; the fence (`epoch`) means a writer whose lease was
+reclaimed while it was suspended **aborts instead of writing**. The lease is
+acquired before step 0, renewed throughout, and released after step 4;
+`index rebuild` and the cleanup pass take it too. Each numbered step below
+re-checks the fence before its first durable write.
 
 Write protocol (FR14b), implemented once in `src/archive/revision.ts` and used
 by every writer from P0 on. **`fsync` ordering is the crash-safety contract**;
 step 0 is the manifest-first discovery write (C1):
 
-0. **Discovery write** (first sight of an id, before any download): create the
-   recording directory; write `rev-0001/meta.json`; `fsync` the file, then
-   `fsync` `rev-0001/`, `fsync` the recording directory; write the initial
-   `manifest.json` (step 3). From here the id is durable.
-1. Allocate `rev-NNNN` by reading existing `rev-*` under the lock. Create
+0. **Discovery write** (first sight of an id, before any download). **Idempotent
+   and manifest-authoritative (R2-3):** if the recording directory and a valid
+   `manifest.json` already exist, do **not** re-initialize — adopt it and
+   reconcile the ledger row from the manifest. Otherwise create the
+   `<YYYY>/<MM>/<id>` tree and, because those parents may be new, **`fsync` each
+   newly-created directory up through the nearest pre-existing archive ancestor**
+   (R2-4), so the path itself is durable, not just the files inside it. Then
+   write `rev-0001/meta.json`; `fsync` the file; `fsync` `rev-0001/`; `fsync` the
+   recording directory; write the initial `manifest.json` (step 3). From here the
+   id is durable.
+1. Allocate `rev-NNNN` by reading existing `rev-*` under the lease. Create
    `rev-NNNN.tmp/`; write every artifact to a temp name and rename within the
    dir; `fsync` **each file**; `fsync` **each nested subdirectory** (e.g.
    `plaud/`) after its files; `fsync` `rev-NNNN.tmp`; rename it to `rev-NNNN`;
@@ -323,7 +348,8 @@ step 0 is the manifest-first discovery write (C1):
 manifest never references audio that isn't on disk.
 
 **Guarantee scope.** File `fsync` plus the rename makes a write durable against a
-**process crash**; the directory `fsync`s above are what extend that to
+**process crash**; the directory `fsync`s above — including the newly-created
+`<YYYY>/<MM>/<id>` parents at discovery (R2-4) — are what extend that to
 **power loss**. The `revision.test.ts` harness injects process crashes (kill
 between every step) and asserts reader behaviour; the power-loss guarantee rests
 on the documented `fsync` ordering, which the tests check is *issued* (via a
@@ -345,24 +371,35 @@ one) is configured (FR14a).
 
 ```
 pull [--since D] [--until D] [--all] [--reconcile] [--recheck-text …] [--dry-run]
-  0. acquire the archive writer lock (P0-D8); exit 3 "archive busy" if held.
+  0. acquire the archive writer lease (P0-D8); exit 3 "archive busy" if a live
+     lease is held; adopt/reconcile any stale lease per P0-D8.
+  0b. STARTUP RECONCILE (R2-3): scan recording dirs whose manifest is newer than,
+     or absent from, the ledger (cheap: compare manifest mtime/epoch to the row);
+     re-derive those ledger rows from the manifest. The manifest is authority.
   1. window.to   = --until ? (D + 1 day) : today(UTC) + 1 day
      window.from = --all ? EPOCH : --since ?? (max(start_at in ledger) − OVERLAP_DAYS − 1 day)
                     (first run with empty ledger: today − OVERLAP_DAYS; owner uses --since/--all to backfill)
   2. for page = 1..: list(window, {page, pageSize: 100}); stop when < 100 returned
-     for each NEW item (not in ledger): DISCOVERY WRITE (§6 step 0) —
-         write rev-0001/meta.json + manifest (audio null/pending, all artifacts
-         pending) BEFORE any download, then UPSERT the derived ledger row and
-         record sync_lag_samples (lag = first_seen_at − start_at, and
-         created_at − start_at). A known item just updates last_seen_at.
+     for each item with NO durable record (no recording dir AND not in ledger):
+         DISCOVERY WRITE (§6 step 0) — write rev-0001/meta.json + manifest
+         (audio null/pending, all artifacts pending) BEFORE any download, then
+         UPSERT the derived ledger row and record sync_lag_samples (lag =
+         first_seen_at − start_at, and created_at − start_at).
+     for each item whose recording dir/manifest EXISTS but ledger row is missing
+         or stale: ADOPT it (reconcile the row from the manifest), never
+         re-initialize — this is the crash-after-manifest-before-UPSERT case.
+         A fully-known item just updates last_seen_at.
          (--dry-run stops here: it lists and counts, writes nothing.)
   3. select audio_pending ∪ (audio_failed where next_retry_at ≤ now), oldest start_at first:
        detail(id) → download → verify length+sha256 → write audio.mp3 → manifest (audio)
-  4. for each recording whose bundle is not aged out, select its PENDING artifacts
-     (cap TEXT_CHECKS_PER_RUN recordings, oldest text_pending_since first):
-       text(id) → for each still-pending artifact: present (write a new rev with the
-                  artifacts known so far) | aged out → absent | else touch last_checked_at
-       recompute text_bundle_state from the per-artifact rows
+  4. for EVERY recording whose bundle is still `plaud_text_pending` — regardless
+     of age (R2-2) — cap TEXT_CHECKS_PER_RUN recordings, oldest text_pending_since
+     first. Split its still-pending artifacts by the age-out deadline:
+       - artifacts PAST the deadline → mark `absent` WITHOUT fetching;
+       - artifacts WITHIN the deadline → text(id) → present (write a new rev with
+         the artifacts known so far) | else touch last_checked_at.
+       recompute text_bundle_state from the per-artifact rows (so a bundle that
+       crossed the timeout between runs still resolves instead of stalling).
   5. write run row + report JSON (redacted: counts, states, error classes; no names/ids
      unless PLAUD_REDACT_SAMPLES=false); release the lock.
 --reconcile: window = EPOCH..today+1; list everything; every id not in ledger →
@@ -391,18 +428,18 @@ test provides. Tasks are ordered; each is one or two commits.
 
 | # | Task | FR | Proof | Class |
 |---|---|---|---|---|
-| T1 | Add `PLAUDPORT_ARCHIVE_ROOT`, `PLAUDPORT_PULL_OVERLAP_DAYS`, `PLAUDPORT_PLAUD_TEXT_TIMEOUT_DAYS`, `PLAUDPORT_RETRY_REPORT_AFTER`, `PLAUDPORT_TEXT_CHECKS_PER_RUN`, `PLAUDPORT_REVISION_HISTORY`, `PLAUDPORT_LOCK_STALE_HOURS`, `PLAUDPORT_BACKUP_HINT`, `PLAUD_MCP_PACKAGE_VERSION` to `.env.example`, `config.ts` (zod), README/ADVANCED tables; **add the default archive root (`data/archive/`) to `.gitignore`** (W3) | FR14a, §13 | `config.test.ts`: defaults, bounds, rejects nonsense; a test asserts the archive glob is gitignored | a |
-| T2 | `src/archive/revision.ts`: write/read protocol of §6 — discovery write (step 0), full `fsync` ordering, trim, cleanup, fallback, corrupt detection — **all under the writer lock (T2a)** | FR14b, C1, C4 | `revision.test.ts`: crash injection between every step (temp dir left, manifest not swapped, artifact missing, hash mismatch) → reader behaviour exactly as §6; a spy asserts the `fsync` ordering (each file, nested dir, rev dir, **recording dir after each rename**, audio before manifest) is issued; property test: N random write/crash sequences never lose a verified revision | a |
-| T2a | `src/archive/lock.ts`: archive-level exclusive writer lock (P0-D8) with `{pid,host,startedAt}`, stale detection + recovery, "archive busy" (exit 3) when held live | FR14b, C3 | `lock.test.ts`: two interleaved writers serialize (no duplicate `rev-NNNN`, no cleanup of an uncommitted revision); a dead-pid/old lock is broken with a warning; a live lock is respected | a |
+| T1 | Add `PLAUDPORT_ARCHIVE_ROOT`, `PLAUDPORT_PULL_OVERLAP_DAYS`, `PLAUDPORT_PLAUD_TEXT_TIMEOUT_DAYS`, `PLAUDPORT_RETRY_REPORT_AFTER`, `PLAUDPORT_TEXT_CHECKS_PER_RUN`, `PLAUDPORT_REVISION_HISTORY`, `PLAUDPORT_LOCK_HEARTBEAT_SECONDS`, `PLAUDPORT_LOCK_LEASE_SECONDS`, `PLAUDPORT_BACKUP_HINT`, `PLAUD_MCP_PACKAGE_VERSION` to `.env.example`, `config.ts` (zod), README/ADVANCED tables; **add the default archive root (`data/archive/`) to `.gitignore`** (W3) | FR14a, §13 | `config.test.ts`: defaults, bounds, rejects nonsense (incl. lease ≥ 3× heartbeat); a test asserts the archive glob is gitignored | a |
+| T2 | `src/archive/revision.ts`: write/read protocol of §6 — idempotent discovery write (step 0), full `fsync` ordering, trim, cleanup, fallback, corrupt detection — **all under the writer lease (T2a)** | FR14b, C1, C4, R2-4 | `revision.test.ts`: crash injection between every step (temp dir left, manifest not swapped, artifact missing, hash mismatch) → reader behaviour exactly as §6; a spy asserts the `fsync` ordering (each file, nested dir, rev dir, **recording dir after each rename**, **each newly-created `<YYYY>/<MM>/<id>` parent up to a pre-existing ancestor**, audio before manifest) is issued; property test: N random write/crash sequences never lose a verified revision | a |
+| T2a | `src/archive/lock.ts`: archive-level exclusive **writer lease with fencing** (P0-D8) — `{pid,host,bootId,startedAt,renewedAt,epoch}`, heartbeat renewal, takeover only on dead-pid-same-host or expired lease, epoch bump + fence check | FR14b, C3, R2-1 | `lock.test.ts`: two interleaved writers serialize (no duplicate `rev-NNNN`, no cleanup of an uncommitted revision); **a live process holding an old (`startedAt` > lease) but actively-renewed lease is NOT stolen**; an expired-lease / dead-pid lock IS taken over; **a fenced-out writer (epoch changed under it) aborts instead of writing** | a |
 | T3 | `src/ledger/db.ts` + schema (incl. `recording_artifacts`) + `index rebuild` from manifests | FR14c, C1, C2 | `ledger.test.ts`: build from fixture archive, drop db, rebuild, **dump of the derived tables** (`recordings`, `recording_artifacts`, `sync_lag_samples`) is identical; `runs`/`defects` are not reproduced by design; **rebuild after discovery-only** (no audio yet) keeps the id; **rebuild after a failed download** keeps the `audio_failed` row; corrupt recording excluded and reported | a |
 | T4 | `src/pull/states.ts` pure state machines + backoff | FR1b, FR1c, C2 | `states.test.ts`: audio transition table incl. expired-URL path is not an attempt, age-out boundary, backoff cap and jitter bounds; **per-artifact text machines**; bundle state derived from the five artifacts (ok only when all present-or-absent; absent only when all absent) | a |
 | T5 | `src/sources/types.ts`, `src/sources/plaudMcp.ts` with zod response schemas | FR2, F8 | `plaudMcp.test.ts` against **fake MCP server** (T6): list paging, detail, text with cursor pages, auth error mapping, telemetry env set on spawn | a |
 | T6 | `scripts/fake-plaud-mcp.mjs`: a stdio MCP server serving fixture recordings (synthetic audio, synthetic transcripts) with knobs: late-appearing recording, **each Plaud artifact appearing independently after its own N calls** (transcript before note, note before transcript, highlights empty), presigned URL that expires after T seconds, 429 on demand, > 500 recordings mode | FR1a–d, C2 test bed | used by T5, T7, T8; `demo.mjs` step 6 | a |
-| T7 | `src/pull/pull.ts` + CLI `plaudport pull` per §7 (`--since`, `--until`, `--all`, `--dry-run`, `--recheck-text`) | FR1, FR1a–c, FR3, C1, C2, C6 | `pull.test.ts` on fake server: late recording discovered by overlap; failed download retried next run; expired URL re-fetched without an attempt; **a crash injected between discovery and download leaves a durable, rebuildable id**; **staggered artifacts are all eventually collected** (transcript then note each add a revision; a recording does not freeze "complete" on the first); text age-out per artifact; `mark_memo` stored; `--dry-run` writes nothing; `--until` bounds the window to one day | a |
+| T7 | `src/pull/pull.ts` + CLI `plaudport pull` per §7 (`--since`, `--until`, `--all`, `--dry-run`, `--recheck-text`) incl. startup reconcile (§7 step 0b) | FR1, FR1a–c, FR3, C1, C2, C6, R2-2, R2-3 | `pull.test.ts` on fake server: late recording discovered by overlap; failed download retried next run; expired URL re-fetched without an attempt; **a crash between the manifest commit and the ledger UPSERT, then an ORDINARY pull (not rebuild), adopts the id — no re-initialize, no duplicate, no overwrite of a later revision** (R2-3); **a bundle first revisited AFTER its age-out deadline resolves to `absent` without stalling pending** (R2-2); **staggered artifacts are all eventually collected** (transcript then note each add a revision); `mark_memo` stored; `--dry-run` writes nothing; `--until` bounds the window to one day | a |
 | T8 | `--reconcile` + `defects` + exit code 2 | FR1d | `pull.test.ts`: seed a recording directly into the fake server with a `start_at` older than the window → defect logged, then archived | a |
 | T9 | `plaudport report [--lag]` and run JSON; redaction applied | FR22, §13 | `report.test.ts`: report contains no names/ids with redaction on; lag stats correct on fixtures | a |
 | T10 | `plaudport doctor` (P0 subset): Node version, archive root + backup hint, `@plaud-ai/mcp` **installed at the pinned version** (reports installed-vs-pinned drift and offers re-install, W1), token file present and not expired (reads `expiresAt` only), `better-sqlite3` native build OK (W2), and a stale writer-lock report | FR21 | `doctor.test.ts` with injected environment, incl. a drifted version and a stale lock | a |
-| T11 | Extend `scripts/demo.mjs`: step 6 runs T6 + `pull` twice (second run exercises retry + late sync), then `index rebuild`, asserts ledger equality | FR1, FR14c | `npm run demo` PASS | a |
+| T11 | Extend `scripts/demo.mjs`: step 6 runs T6 + `pull` twice (second run exercises retry + late sync), then `index rebuild`, asserts **derived-table** equality (`recordings`, `recording_artifacts`, `sync_lag_samples`; not `runs`/`defects`) | FR1, FR14c | `npm run demo` PASS | a |
 | T12 | Docs: `docs/CLI.md`, `docs/ADVANCED.md` Scripts/Roadmap, README "Pull your library" section, `docs/BACKUP.md` stub noting FR14d is P5 | — | review | — |
 | T13 | **Live gate run** (owner): §9 checklist, results recorded in `docs/P0-GATE.md` with counts only | FR1, §9 | — | **b** |
 | T14 | PRD edits in the same PR: F2 resolves O1 (record the observed behaviour and that the docs page is wrong); §4 gains the `@plaud-ai/mcp` facts; **FR1b clarified to per-artifact Plaud-text readiness (C2); FR14b gains the writer lock + full power-loss `fsync` ordering (C3, C4); FR14c scopes "derived/rebuildable" to the recording state and names the observational tables (C1)**; changelog v7 | CLAUDE.md living-spec rule | review | — |
@@ -423,7 +460,7 @@ the result is recorded. Anything not run is recorded as **pending** in
 | G4 | Transcript-less recording lands `plaud_text_pending` and later resolves | b | a recording Plaud has not yet transcribed (common within minutes of sync) | owner, two runs ≥ 10 min apart | state before/after |
 | G5 | Late-synced recording discovered: owner records on the Note Pro with the phone app closed, syncs the next day, runs `pull`; recording appears with `created_at − start_at > 12 h` and inside the overlap window | b | Note Pro, one day | owner | lag hours from `report --lag` |
 | G6 | `pull --reconcile` reports 0 defects after G1 | b | G1 done | owner | defects count |
-| G7 | `index rebuild` after G1 reproduces an identical ledger (SQL dump diff) | a + b | G1 done | owner | diff is empty |
+| G7 | `index rebuild` after G1 reproduces the **derived tables** identically (`recordings`, `recording_artifacts`, `sync_lag_samples`; `runs`/`defects` are observational and excluded) — SQL dump diff of those tables | a + b | G1 done | owner | diff is empty |
 | G8 | Every automated test (T2–T11) green in CI | a | — | CI | green check on the PR |
 
 **Explicitly pending after P0, by design:** overlap-window and text-timeout
@@ -452,11 +489,15 @@ calibration (class c, §7); restore verification (FR14d, P5).
   `main`), `npm ci` does this per-arch at install, the same class as
   `tsx`/`esbuild`; `doctor` (T10) fails loudly if the native build is missing.
   No prebuilt `node_modules` is ever shipped cross-platform.
-- **R7. Writer-lock recovery (C3).** A process killed mid-pull leaves the lock
-  file; the next run breaks it only when the pid is dead on this host or the
-  lock is older than `PLAUDPORT_LOCK_STALE_HOURS`, and logs that it did so, so a
-  genuinely running pull is never stomped while a crashed one does not wedge the
-  archive forever.
+- **R7. Writer-lease recovery (C3, R2-1).** A process killed mid-pull leaves the
+  lock file; the next run takes over only when the pid is dead on this host **or**
+  the lease (`renewedAt`) has expired — never on `startedAt` age — and logs that
+  it did so. A genuinely running pull keeps renewing and is never stomped,
+  however long its backfill takes; a crashed or suspended one stops renewing and
+  is reclaimed, and the fence (`epoch`) stops it writing if it later wakes. The
+  one residual case — a wall-clock jump large enough to expire a live lease
+  between heartbeats — is bounded by the ≥ 3× heartbeat margin and closed by the
+  fence, which fails the stale writer's next write rather than corrupting.
 - **Q1 (for P3).** Migrate v1 `data/shares/` and `data/imports/` into the new
   tree? Those recordings have no Plaud id of their own (share imports do have
   the uploaded `of_` id); defer.
