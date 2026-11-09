@@ -1,8 +1,10 @@
 # Plaud's public share API
 
-Recorded from a real share page on **2026-09-14**. Unofficial and undocumented:
+Recorded from a real share page on **2026-09-14**, endpoint path re-verified
+**2026-10-28** (Plaud moved it to `/share/v4/`). Unofficial and undocumented:
 Plaud can change it without notice. All of it is isolated in `src/shareClient.ts`
-so a change is a one-file fix.
+so a change is a one-file fix. The fastest way to re-discover the paths after a
+change is `npm run scan:har -- <a browser HAR of the share page>`.
 
 No content from the observed recording appears here — field names and shapes only.
 
@@ -25,6 +27,7 @@ edit-from: web
 origin: https://web.plaud.ai
 referer: https://web.plaud.ai/
 timezone: <IANA zone, e.g. America/New_York>
+x-timezone-iana: <same IANA zone; the v4 web app's header>
 user-agent: <a real browser UA>
 x-device-id: <client-generated hex>
 x-request-id: <client-generated>
@@ -39,9 +42,11 @@ authenticated by them. The gate is on *shape*, not identity — which also means
 
 Base: `https://api.plaud.ai` (override with `PLAUD_SHARE_API_BASE`)
 
-### `GET /share/access/<pub_id>::<token>`
+### `GET /share/v4/access/<pub_id>::<token>`
 
-Everything except the audio bytes.
+Everything except the audio bytes. (Was `/share/access/<pub_id>::<token>` until
+2026-10-28; the unversioned path now returns `{status:40400,"Share not found"}`
+even for links that still open in a browser.)
 
 ```
 {
@@ -77,7 +82,7 @@ Everything except the audio bytes.
 Utterance `start_time` / `end_time` are millisecond offsets from the start of
 the recording.
 
-### `GET /share/access/<pub_id>::<token>/audio`
+### `GET /share/v4/access/<pub_id>::<token>/audio`
 
 ```
 { status: 0, temp_url: string }
