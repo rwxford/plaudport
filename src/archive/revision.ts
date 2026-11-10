@@ -80,12 +80,20 @@ function committedRevs(recDir: string): number[] {
 }
 
 /**
+ * The next revision name: one past the highest COMMITTED rev dir (referenced
+ * or not), so debris from a crashed writer is never reused. Deterministic
+ * under the archive lock, so a caller may learn it before writing.
+ */
+export function allocateRev(recDir: string): string {
+  return revName((committedRevs(recDir).at(-1) ?? 0) + 1);
+}
+
+/**
  * Write a new immutable revision directory and return its manifest entry. The
  * manifest is NOT touched; the revision is invisible until `commitManifest`.
  */
-export function writeRevision(recDir: string, files: RevisionFiles, now: Date): RevEntry {
-  const n = (committedRevs(recDir).at(-1) ?? 0) + 1;
-  const rev = revName(n);
+export function writeRevision(recDir: string, files: RevisionFiles, now: Date, rev: string = allocateRev(recDir)): RevEntry {
+  if (rev !== allocateRev(recDir)) throw new Error("revision name is not the next free one");
   const tmp = join(recDir, `${rev}.tmp`);
   // Under the lock no other writer exists, so a same-named .tmp is debris.
   if (existsSync(tmp)) removeTree(tmp);

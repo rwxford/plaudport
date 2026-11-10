@@ -99,7 +99,9 @@ export function pendingArtifacts(a: Record<Artifact, ArtifactStatus>): Artifact[
  */
 export function applyTextCheck(
   a: Record<Artifact, ArtifactStatus>,
-  ev: { pastDeadline: true } | { pastDeadline: false; observed: Partial<Record<Artifact, boolean>>; presentRev: string | null },
+  ev:
+    | { pastDeadline: true }
+    | { pastDeadline: false; observed: Partial<Record<Artifact, boolean | "absent">>; presentRev: string | null },
   now: Date,
 ): Record<Artifact, ArtifactStatus> {
   const at = now.toISOString();
@@ -109,6 +111,9 @@ export function applyTextCheck(
     if (cur.state !== "pending") continue;
     if (ev.pastDeadline) {
       out[k] = { state: "absent", lastCheckedAt: cur.lastCheckedAt, presentRev: null };
+    } else if (ev.observed[k] === "absent") {
+      // A final "empty" answer (e.g. a highlights block with no presses).
+      out[k] = { state: "absent", lastCheckedAt: at, presentRev: null };
     } else if (ev.observed[k]) {
       if (!ev.presentRev) throw new Error("a newly-present artifact needs the revision that carries it");
       out[k] = { state: "present", lastCheckedAt: at, presentRev: ev.presentRev };

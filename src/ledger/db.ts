@@ -119,7 +119,12 @@ export function hoursBetween(a: string, b: string): number {
 export class Ledger {
   readonly db: Database.Database;
 
-  constructor(path: string) {
+  constructor(path: string, opts: { readonly?: boolean } = {}) {
+    if (opts.readonly) {
+      // For --dry-run / report: never creates or migrates anything.
+      this.db = new Database(path, { readonly: true, fileMustExist: true });
+      return;
+    }
     if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     this.db = new Database(path);
     this.db.pragma("journal_mode = WAL");

@@ -128,3 +128,9 @@ test("--recheck-text reopens only absent artifacts", () => {
   assert.equal(r.note.state, "pending");
   assert.equal(deriveBundle(r), "plaud_text_pending");
 });
+
+test("an explicit empty answer (highlights) resolves absent immediately, not at the deadline", () => {
+  const a = applyTextCheck(initialArtifacts(), { pastDeadline: false, observed: { highlights: "absent" }, presentRev: null }, now);
+  assert.equal(a.highlights.state, "absent");
+  assert.equal(a.transcript.state, "pending");
+});
