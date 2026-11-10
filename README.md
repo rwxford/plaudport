@@ -165,6 +165,21 @@ After updating your project files:
 4. Stop the running PlaudPort server with Control-C and start the launcher again.
 5. Reload Plaud in Chrome, then check the connection in PlaudPort.
 
+## Pull your library to this Mac (new, v2)
+
+PlaudPort can now keep a **local archive of your whole Plaud library** — audio
+plus Plaud's transcript and summary — through Plaud's official MCP connection:
+
+```bash
+plaudport doctor --install-mcp && plaudport login   # once
+plaudport pull --all                                 # first time: everything (slow)
+plaudport pull                                       # after that: just what's new
+```
+
+The first archive needs `--all` (or `--since <date>`); a bare `pull` only looks
+back 14 days from the newest recording already archived. Details, options and
+exit codes: [Terminal commands → Pull your whole Plaud library](docs/CLI.md#pull-your-whole-plaud-library-to-this-mac-v2).
+
 ## Other uses and technical information
 
 - **Gong downloads and audio/video files:** supported through Terminal, not yet

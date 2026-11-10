@@ -29,6 +29,17 @@ All settings come from the environment; `.env.example` is the template.
 | `PLAUD_REQUEST_TIMEOUT_MS` | no | `30000` | Per-request timeout |
 | `PLAUD_REDACT_SAMPLES` | no | `true` | Strip string values out of report samples |
 | `PLAUD_ALLOW_WRITE_TEST` | no | `false` | Unlocks the guarded M0 write test |
+| `PLAUDPORT_ARCHIVE_ROOT` | no | `./data/archive` | v2 archive root (system of record); point at a backed-up volume |
+| `PLAUDPORT_BACKUP_HINT` | no | — | Note that a backup exists; silences `doctor`'s boot-volume warning (FR14a) |
+| `PLAUDPORT_PULL_OVERLAP_DAYS` | no | `14` | Days re-listed before the newest archived recording (FR1a, §13) |
+| `PLAUDPORT_PLAUD_TEXT_TIMEOUT_DAYS` | no | `7` | Days to wait for each Plaud artifact before `absent` (FR1b, §13) |
+| `PLAUDPORT_RETRY_REPORT_AFTER` | no | `3` | Failures before `report` flags a download (FR1c, §13) |
+| `PLAUDPORT_TEXT_CHECKS_PER_RUN` | no | `200` | Recordings whose Plaud text is re-checked per pull |
+| `PLAUDPORT_REVISION_HISTORY` | no | `3` | Previous revisions kept per recording (FR14b, §13) |
+| `PLAUD_MCP_PACKAGE_VERSION` | no | `0.3.14` | Exact `@plaud-ai/mcp` version `doctor --install-mcp` pins |
+| `PLAUDPORT_MCP_DIR` | no | per-OS app-support dir | Where the pinned MCP package is installed |
+| `PLAUDPORT_MCP_ENTRY` | no | — | Testing: run this script as the MCP server (the fake) |
+| `PLAUDPORT_DEBUG_URL_AGE_HOURS` | no | — | Testing (G3a): pretend presigned URLs are this old |
 
 Later milestones add a few more (local UI bind/port, concurrency, backup
 freshness); they're listed and commented out at the bottom of `.env.example`.
@@ -36,6 +47,13 @@ freshness); they're listed and commented out at the bottom of `.env.example`.
 ## Scripts
 | Command | What it does |
 |---|---|
+| `npm run doctor -- [--install-mcp]` | v2: check Node, archive root, Plaud's MCP package (pin-install with `--install-mcp`), login, lock |
+| `npm run login` | v2: sign in to Plaud once (Plaud's own browser sign-in; token stays in `~/.plaud/`) |
+| `npm run pull -- [--all \| --since D] [--until D] [--dry-run]` | v2: archive the library locally — audio + Plaud's text, by id, with an overlap window |
+| `npm run pull -- --reconcile` | v2: list the whole library and log anything missing as a discovery defect (exit 2) |
+| `npm run pull -- --recheck-text <id>… \| --all` | v2: reopen Plaud artifacts that aged out to `absent` |
+| `npm run report -- [--lag] [--verify-audio N] [--json]` | v2: archive state, retries, sync-lag calibration, audio re-hash |
+| `npm run index -- rebuild` | v2: rebuild the ledger's derived tables from manifests alone |
 | `npm run probe:share -- "<link>"` | Report what a public share link exposes |
 | `npm run import -- "<link>" \| <links.txt> \| <call.mp4>` | **Archive + import.** Share links, a file of them, recordings on disk (e.g. Gong downloads), or a mix |
 | `npm run web` | Local web page: paste a link, click Import, watch progress (loopback only) |
@@ -57,6 +75,9 @@ freshness); they're listed and commented out at the bottom of `.env.example`.
 | `npm run hooks:install` | Installs the secret check as a pre-commit hook |
 
 ## Roadmap
+- **v2 pipeline** (`PRD-PIPELINE.md` §9): **P0 — Pull** implemented
+  (`P0-PLAN.md`); its live-account gate checks are tracked in `P0-GATE.md`.
+  P1 (local transcription) is next.
 - Share import: `PRD-SHARE-IMPORT.md` §9. Done through **S4** — fetch,
   archive, upload (verified live), and a local web UI (`npm run web`).
 - Migration: `PRD.md` §9. The upload flow discovered here is the same one

@@ -1,6 +1,6 @@
 # PRD — Plaud as Capture Device, Everything Else Local ("PlaudPort v2")
 
-**Status:** v9, approved · P0 plan **approved for implementation** · **Owner:** Ross Weatherford (rwxford) ·
+**Status:** v10, approved · P0 **implemented; live-account gate pending** (`P0-GATE.md`) · **Owner:** Ross Weatherford (rwxford) ·
 **Priority:** primary. Supersedes `PRD-SHARE-IMPORT.md` as the main line of work;
 share import and the upload path (`UPLOAD-API.md`) become sub-features of this one.
 
@@ -23,6 +23,7 @@ share import and the upload path (`UPLOAD-API.md`) become sub-features of this o
 | v7 | 2026-11-09 | FR1b → **per-artifact** Plaud-text readiness (a transcript arriving before its note no longer freezes the bundle); FR14b gains the **single-writer archive lock** and the **power-loss `fsync` ordering** (nested dirs + recording dir after renames); FR14c **scopes** "derived/rebuildable" to the recording state (`recordings`, per-artifact readiness, lag samples) and names `runs`/`defects` as observational, not reproduced | P0-PLAN v1 review — Codex request-changes (C1–C6) + working-agent read (W1–W3); see `P0-PLAN.md` §0 |
 | v8 | 2026-11-09 | FR14b writer lock → **renewed lease with fencing** (no takeover on age alone; an epoch fence aborts a reclaimed writer's writes) and adds **newly-created parent-dir `fsync`** to the ordering; FR14c adds **manifest-as-authority + idempotent discovery** (crash between manifest commit and ledger update is recovered by an ordinary `pull`) | P0-PLAN v2 review — Codex request-changes (R2-1…R2-4 + G7/T11 cleanup); see `P0-PLAN.md` §0 |
 | v9 | 2026-11-09 | FR14b lock → **OS-held exclusive lock** (held across suspension, released on exit) replacing the user-space lease+fence, which had a check-then-write TOCTOU; and names a dir with **no committed manifest** an *interrupted initialization* (recovered under the lock), distinct from a corrupt committed manifest | P0-PLAN v3 review — Codex request-changes (R3-1 fencing TOCTOU, R3-2 interrupted init); see `P0-PLAN.md` §0 |
+| v10 | 2026-11-10 | P0 implementation findings: §4 records the pinned `@plaud-ai/mcp` 0.3.14 facts (sign-in is the package's `login` tool — there is no `login` CLI subcommand; date filters use the MCP process's local timezone; recording data arrives wrapped in a random-named untrusted tag; the package reads `PLAUD_API_BASE` from its environment, so PlaudPort spawns it with a minimal env); FR1b: an explicitly **empty** highlights block resolves `absent` at once; FR1d wording matches the behaviour (defect logged, then archived); FR14 directory is `<id>/` (no title slug); O1 status updated | P0 implementation; see `P0-PLAN.md` §12 |
 
 **Review process.** Each revision is reviewed by a model other than the one
 drafting it (Codex), working from the committed document rather than the
@@ -121,6 +122,20 @@ Phase 2, still blocked on a credential).
   newest 500), `get_file` (metadata + presigned audio URL, 24 h), `get_transcript`
   (`transaction`, `transaction_polish`, `outline`, `mark_memo` highlights),
   `get_note`. `serial_number` is null on observed records.
+- **The local `@plaud-ai/mcp` package** (pinned 0.3.14; read from the published
+  package, 2026-11-10) is a stdio server over
+  `platform.plaud.ai/developer/api`. It authenticates by OAuth with a refresh
+  token in `~/.plaud/tokens-mcp.json` and refreshes it itself. Sign-in is its
+  `login` **tool** (or its `install` command, which also edits AI-client
+  configs); there is no `login` CLI subcommand. `list_files` date filters are
+  interpreted in the **MCP process's local timezone** (the owner's Mac, so a
+  day matches the Plaud app's day); `page_size` ≥ 10. Recording data is
+  returned inside a randomly-named `untrusted-user-data-…` tag, with
+  plain-text status lines when a block is missing or empty (an empty
+  highlights block says so explicitly). It reads `PLAUD_API_BASE` and other
+  `PLAUD_*` variables from its environment — names PlaudPort's own `.env`
+  also uses — so the adapter spawns it with a minimal environment. It sends
+  telemetry unless `PLAUD_TELEMETRY_DISABLED` is set; PlaudPort always sets it.
 - **Web-API bearer expires in ~1 day**; the Chrome extension refreshes it only
   while Chrome visits Plaud. Unchanged from `UPLOAD-API.md`.
 - **No transcript write-back to Plaud.** Still no endpoint. v2 no longer needs one.
@@ -151,7 +166,9 @@ Phase 2, still blocked on a credential).
   the bundle has not aged out, `ok` once all are present-or-absent, `absent` only
   if all aged out. `pull` re-checks **each still-pending artifact** on every run
   until it resolves or the bundle ages out (configurable; default 7 days →
-  `absent`). Marking the bundle complete on the first artifact to arrive would
+  `absent`). An artifact Plaud reports as explicitly **empty** (a highlights
+  block with no button presses) resolves `absent` at once rather than waiting
+  out the timeout. Marking the bundle complete on the first artifact to arrive would
   silently drop the rest, so readiness is never a single per-recording flag.
 - FR1c. **Persistent retries by id.** `audio_failed` and expired-URL cases are
   retried with backoff on subsequent runs, indefinitely, and surfaced in `report`
@@ -160,7 +177,8 @@ Phase 2, still blocked on a credential).
 - FR1d. **Periodic full reconciliation.** `plaudport pull --reconcile` (and the
   scheduler, weekly) lists the entire library and diffs it against the ledger;
   anything in Plaud and not in the ledger is a P1 defect in discovery and is
-  logged as such, not silently added.
+  logged as such (a `defects` row, a warning, exit code 2) — never silently
+  added — and is then archived like any other recording.
 - FR2. Source adapters behind one interface: `plaud-mcp` (default), `plaud-web`
   (existing reverse-engineered client), `file` (drop folder), `share` (existing).
 - FR3. `mark_memo` highlights (device button presses) are preserved as first-class
@@ -289,9 +307,12 @@ Phase 2, still blocked on a credential).
   stale.
 
 ### Publish
-- FR14. **Local store is canonical.** `<archive-root>/<YYYY>/<MM>/<id>-<slug>/`
-  holds `audio.mp3`, `manifest.json` (pointer + hashes, FR14b), `plaud/`
-  (whatever Plaud produced), and revision directories each containing
+- FR14. **Local store is canonical.** `<archive-root>/<YYYY>/<MM>/<id>/` (no
+  title slug: Plaud's AI title often arrives after the recording syncs, and a
+  title in a path would put content into every log line that names it; the
+  title lives in the manifest)
+  holds `audio.mp3`, `manifest.json` (pointer + hashes, FR14b), and revision
+  directories each containing `plaud/` (whatever Plaud produced) and, from P1,
   `transcript.json`, `transcript.md`, `assignments.json`,
   `summary-<template>.md`. No embeddings (FR10). Index in SQLite. Canonical
   means it must be recoverable:
@@ -544,7 +565,9 @@ project; summaries without it are only a cheaper Plaud.
   description says date filters are server-side and support `page`/`page_size`,
   and that only the name-substring `query` ignores paging (newest 500 scanned).
   That is the behaviour FR1a depends on, and it is an assumption until the P0
-  exit gate proves it on this account's library.
+  exit gate proves it on this account's library. *Status (v10):* observed to
+  hold through the claude.ai Plaud connector (`P0-PLAN.md` F2); confirmation
+  on the local package is gate check G1a, **pending** (owner).
 - **O2.** pyannote community-1 on MLX vs. CoreML vs. CPU on the M4: which path,
   and what is the real-time factor? Resolve in P2 spike.
 - **O3.** Embedding model for identification: pyannote's own vs. WeSpeaker /

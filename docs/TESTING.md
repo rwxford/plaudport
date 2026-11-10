@@ -31,6 +31,11 @@ puts you in — then runs the actual tools against it:
 3. runs `fetch:audio` to download it
 4. checks the downloaded bytes are **identical** to what was served
 5. checks the safety guards refuse bad input
+6. **v2 pull:** starts a fake Plaud MCP server (`scripts/fake-plaud-mcp.mjs`,
+   synthetic recordings), runs `pull` twice — the second run retries a failed
+   download, finds a late-synced recording through the overlap window and
+   collects a Plaud note that arrived late — then checks `index rebuild`
+   reproduces the ledger exactly and `report --verify-audio` re-hashes the audio
 
 Every step prints PASS or FAIL. At the end it points at a real `.wav` file —
 `open` it and you should hear a two-second tone. That tone travelled the same

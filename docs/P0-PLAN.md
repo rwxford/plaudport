@@ -1,6 +1,8 @@
 # P0 Plan — Pull
 
-**Milestone:** P0 of `PRD-PIPELINE.md` · **Status:** v4 — **approved for
+**Milestone:** P0 of `PRD-PIPELINE.md` · **Status:** v4 — approved, **implemented**
+(2026-11-10; deviations found while building are in §12; live gate in
+`P0-GATE.md`, pending) · was: **approved for
 implementation** (independent review, Codex, of `1722e92`; four review cycles,
 `fa7bd06`→`1722e92`, plus a working-agent read); two nonblocking wording
 cleanups (P0-D5, T10) applied after approval, 2026-11-09 · **Implements:** FR1, FR1a–d, FR2 (interface +
@@ -545,3 +547,24 @@ A bare `npm run pull` (no `--since`/`--all`) only reaches back
 `PLAUDPORT_PULL_OVERLAP_DAYS` (default 14); the **first** archive needs `--all`
 (or `--since <date>`) to backfill history (W3). The README's "Pull your library"
 section leads with that.
+
+## 12. Implementation notes (2026-11-10)
+
+What building P0 found that this plan did not say, or said differently. Spec
+consequences are in `PRD-PIPELINE.md` v10.
+
+| # | Finding | What the code does | Plan/PRD |
+|---|---|---|---|
+| I1 | **`npx @plaud-ai/mcp login` does not exist** in the pinned 0.3.14: sign-in is the package's `login` MCP tool, or its `install` command (which also rewrites Claude/Codex client configs). | `plaudport login` spawns the pinned package and calls its own `login` tool; Plaud's code runs the browser OAuth and writes `~/.plaud/tokens-mcp.json`. PlaudPort still never sees, stores or refreshes a token. | **P0-D2 amended — owner to confirm** (question in the PR). PRD §4. |
+| I2 | The package reads `PLAUD_API_BASE` (and other `PLAUD_*`) from its environment — the same names PlaudPort's `.env` uses for the v1 web API. Inherited, it would send the OAuth bearer to the wrong host. | The child gets a **minimal environment** (PATH, HOME, locale, proxy + CA vars) plus `PLAUD_TELEMETRY_DISABLED=1`; a test spawns it and checks no other `PLAUD_*` arrives. | PRD §4 |
+| I3 | `--until D` as `D + 1` (§7 step 1) makes G2's one-day count include the next day. | An explicit `--until` is an exact inclusive bound; runs without it keep one day of slack past today (F6). | §7 superseded here |
+| I4 | Rebuild must reproduce `recording_artifacts.last_checked_at` / `present_rev`, which the §6 manifest example (strings per artifact) cannot carry. | `states.artifacts.<a>` is `{state, lastCheckedAt, presentRev}`. `manifest.states` is the authority; `meta.json` holds a snapshot as of its revision. State-only changes (retry counters, last-seen, last-checked) are **manifest-only swaps** — a failed download does not mint a revision. | §6 example superseded |
+| I5 | The startup sweep would re-verify every revision of every recording on every run. | Ledger column `manifest_hash` (derived; rebuild recomputes it): an unchanged manifest is skipped; a changed or unknown one is verified and its row re-derived. `last_seen_at` is refreshed at most hourly to avoid manifest churn. | §3 + 1 column |
+| I6 | An explicitly empty highlights block (no button presses) is final; waiting 7 days for it kept nearly every bundle pending. | Resolves `absent` immediately; "not available yet" stays pending. | PRD FR1b |
+| I7 | `first_seen − start_at` is inflated by backfills (`--all` first-sees year-old recordings), so "2 × max" of it is meaningless. | `report --lag` prints both; the implied window uses Plaud's `created_at − start_at`. | §7 table |
+| I8 | G1c needs a hash re-check the plan named but no command provided. | `report --verify-audio N` (read-only; exit 1 on mismatch). | §9 G1c |
+| I9 | Exit code for "needs sign-in" was unspecified. | `pull` exits **4** with the login instruction (0 ok · 1 error · 2 defects · 3 busy). | §7 |
+| I10 | The presigned-audio host of the developer API is not known; the allowlist names the v1 buckets. | Downloads refuse non-allowlisted hosts (and non-HTTPS); the run logs the refused **hostname** once so the owner can add it deliberately. Recorded as a G-run item in `P0-GATE.md`. | — |
+| I11 | Dependency versions. | `@modelcontextprotocol/sdk` **1.32.2** (≤ 1.31 carries published advisories); `better-sqlite3` **12.11.1** (13.x needs Node 22; the repo supports 20). Both exact-pinned. The pre-existing `zod` 3.x advisory is unchanged here. | P0-D7 |
+| I12 | A recording's directory must not move if Plaud later edits `start_at`. | The dir is fixed at first sight; discovery finds it through the ledger, not by recomputing. | §6 |
+| I13 | Some platforms reject `fsync` on a directory fd. | Treated as a best-effort no-op there (the strongest guarantee available); the spy test still checks every directory sync is issued. | §6 |

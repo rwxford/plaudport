@@ -81,3 +81,47 @@ own timestamp is the day you downloaded it, and the command warns you if that's
 all it has. The same file, even renamed, is only ever imported once.
 `~/Downloads/*.mp4` imports several at once. Details, and the plan for fetching
 from Gong automatically, are in [Gong import guide](GONG.md).
+
+## Pull your whole Plaud library to this Mac (v2)
+
+PlaudPort v2 keeps a local archive of every recording — audio plus whatever
+Plaud produced (transcript, polished transcript, outline, highlights, summary)
+— with sha256 checksums, as the system of record
+([`PRD-PIPELINE.md`](PRD-PIPELINE.md)). It reads through Plaud's **official**
+MCP package, which handles sign-in and token refresh; nothing is ever changed
+or deleted in Plaud.
+
+```bash
+plaudport doctor --install-mcp   # once: pins Plaud's MCP package, then checks everything
+plaudport login                  # once: Plaud's own sign-in opens in your browser
+plaudport doctor                 # all green?
+plaudport pull --all             # FIRST run: backfill the whole library (long — an hour+ for 1,000 recordings)
+plaudport pull                   # every run after: new recordings + anything still pending
+```
+
+**The first archive needs `--all` (or `--since 2025-06-01`).** A bare `pull`
+only reaches back `PLAUDPORT_PULL_OVERLAP_DAYS` (default 14) from the newest
+recording already archived — that overlap is what catches a recording the
+phone syncs a day late.
+
+Re-running is always safe: recordings are tracked by id, a failed download is
+retried on the next run (with backoff, indefinitely), and Plaud's transcript
+and summary are collected whenever they appear, each as a new revision.
+
+| Command | What it does |
+|---|---|
+| `plaudport pull --since 2026-10-15 --until 2026-10-15 --dry-run` | Count one day's recordings without writing anything (compare with the Plaud app) |
+| `plaudport pull --reconcile` | List the whole library; anything missing from the archive is reported as a **discovery defect** (exit code 2) and then archived |
+| `plaudport pull --recheck-text --all` | Ask Plaud again for transcripts/summaries that timed out (e.g. after minutes refresh) |
+| `plaudport report --lag` | Archive state, failing downloads, and how late recordings sync (to tune the overlap window) |
+| `plaudport report --verify-audio 20` | Re-hash a random sample of archived audio against the recorded sha256 |
+| `plaudport index rebuild` | Rebuild the index from the archive's manifests alone |
+
+Exit codes for `pull`: `0` ok · `1` error · `2` discovery defects ·
+`3` archive busy (another pull is running) · `4` Plaud sign-in needed.
+
+The archive lives at `PLAUDPORT_ARCHIVE_ROOT` (default `./data/archive`,
+gitignored): `<YYYY>/<MM>/<recording-id>/` holds `audio.mp3`, a `manifest.json`
+with checksums, and immutable `rev-NNNN/` revisions. Point it at a volume you
+back up — `doctor` warns until `PLAUDPORT_BACKUP_HINT` says you have one. Logs
+and reports carry counts and states only, never titles or ids.
