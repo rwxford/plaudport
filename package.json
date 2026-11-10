@@ -33,7 +33,12 @@
     "chrome:install": "node scripts/chrome-auth-install.mjs",
     "test:chrome": "node --test scripts/chrome-auth.test.mjs",
     "start": "node --import tsx src/webServer.ts --open",
-    "cli": "node bin/plaudport.mjs"
+    "cli": "node bin/plaudport.mjs",
+    "pull": "tsx src/pullCli.ts",
+    "report": "tsx src/reportCli.ts",
+    "doctor": "tsx src/doctorCli.ts",
+    "login": "tsx src/loginCli.ts",
+    "index": "tsx src/indexCli.ts"
   },
   "devDependencies": {
     "@types/better-sqlite3": "7.6.13",

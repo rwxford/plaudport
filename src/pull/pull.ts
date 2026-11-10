@@ -90,6 +90,8 @@ export interface PullReport {
   errors: Record<string, number>;
   source: { requests: number; rateLimited: number; retries: number };
   sweep: Omit<SweepResult, "corrupt" | "fellBack"> & { corrupt: number; fellBack: number };
+  /** Audio hosts refused by PLAUD_ALLOWED_HOSTS (hostnames only). */
+  blockedHosts: string[];
   /** Ids only when redaction is off. */
   samples?: { defects: string[]; newIds: string[] };
   outcome: "ok" | "busy" | "auth" | "error";
@@ -127,6 +129,7 @@ function blank(runId: string, kind: "pull" | "reconcile", startedAt: string, dry
     audio: { attempted: 0, ok: 0, failed: 0, urlRefreshed: 0 },
     text: { checked: 0, newlyPresent: 0, agedOut: 0, resolved: 0, errors: 0 },
     defects: 0,
+    blockedHosts: [],
     errors: {},
     source: { requests: 0, rateLimited: 0, retries: 0 },
     sweep: { scanned: 0, rederived: 0, completed: 0, removed: 0, corrupt: 0, fellBack: 0, cleaned: 0 },
@@ -386,6 +389,9 @@ export async function runPull(opts: PullOptions, deps: PullDeps): Promise<{ exit
     lock.release();
   }
 
+  for (const h of report.blockedHosts) {
+    log(`audio host ${h} is not in PLAUD_ALLOWED_HOSTS — add it to .env deliberately if it is Plaud's storage, then pull again`);
+  }
   log(
     `${kind}: listed ${report.listed} (${report.pages} page(s)), new ${report.newIds}, ` +
       `audio ${report.audio.ok} ok / ${report.audio.failed} failed, ` +
@@ -501,6 +507,9 @@ async function fetchAudio(
     } catch (e) {
       if (e instanceof DownloadError && e.status === 403 && !refreshed) {
         if (await refresh()) continue; // expired presigned URL: not an attempt
+      }
+      if (e instanceof DownloadError && e.errorClass === "host_not_allowed" && e.host && !report.blockedHosts.includes(e.host)) {
+        report.blockedHosts.push(e.host); // a storage hostname, not a credential
       }
       return { ok: false, errorClass: e instanceof DownloadError ? e.errorClass : "download_error" };
     }

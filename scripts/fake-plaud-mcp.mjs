@@ -4,7 +4,7 @@
  * response wrapping as the pinned `@plaud-ai/mcp`, serving SYNTHETIC
  * recordings so `pull` can be exercised end to end without a Plaud account.
  *
- *   FAKE_PLAUD_DIR=<dir> node scripts/fake-plaud-mcp.mjs
+ *   FAKE_PLAUD_DIR=<dir> node scripts/fake-plaud-mcp.mjs     (default: ./data/demo/fake-plaud)
  *
  * <dir>/fixture.json  — the library + knobs (tests write it; may change between runs)
  * <dir>/state.json    — counters that persist across processes (one per `pull`)
@@ -38,9 +38,11 @@ import { createServer } from "node:http";
 import { join } from "node:path";
 import { z } from "zod";
 
-const DIR = process.env.FAKE_PLAUD_DIR;
-if (!DIR) {
-  console.error("FAKE_PLAUD_DIR is required");
+// The adapter hands its child a minimal environment, so when launched through
+// the real CLI (npm run demo) the fixture is found relative to the cwd instead.
+const DIR = process.env.FAKE_PLAUD_DIR ?? join(process.cwd(), "data", "demo", "fake-plaud");
+if (!existsSync(join(DIR, "fixture.json"))) {
+  console.error("fake-plaud-mcp: no fixture.json (set FAKE_PLAUD_DIR)");
   process.exit(2);
 }
 const fixturePath = join(DIR, "fixture.json");

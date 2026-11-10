@@ -12,6 +12,8 @@ export class DownloadError extends Error {
   constructor(
     readonly errorClass: string,
     readonly status: number | null = null,
+    /** Hostname only (never the URL), for the allowlist hint. */
+    readonly host: string | null = null,
   ) {
     super(`audio download failed (${errorClass})`);
   }
@@ -33,7 +35,7 @@ export async function downloadToPart(url: string, partPath: string, opts: Downlo
   if (u.protocol !== "https:" && !(u.protocol === "http:" && (u.hostname === "127.0.0.1" || u.hostname === "localhost"))) {
     throw new DownloadError("insecure_url");
   }
-  if (!opts.isAllowedHost(u.host)) throw new DownloadError("host_not_allowed");
+  if (!opts.isAllowedHost(u.host)) throw new DownloadError("host_not_allowed", null, u.hostname);
 
   const ac = new AbortController();
   let timer = setTimeout(() => ac.abort(), opts.idleTimeoutMs);

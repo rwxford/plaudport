@@ -23,6 +23,12 @@ export const COMMANDS: Record<string, string> = {
   "check-auth": "./checkAuth.js",
   probe: "./shareProbe.js",
   fetch: "./shareFetch.js",
+  // v2 pipeline (docs/PRD-PIPELINE.md, P0)
+  pull: "./pullCli.js",
+  report: "./reportCli.js",
+  doctor: "./doctorCli.js",
+  login: "./loginCli.js",
+  index: "./indexCli.js",
 };
 
 /** command → a plain Node script (not TypeScript) to run in a child process. */
@@ -40,6 +46,11 @@ export const SUMMARIES: Record<string, string> = {
   fetch: "Archive a share locally without uploading",
   "import-audio": "Upload one already-archived recording (lower level)",
   "chrome-install": "Install the macOS Chrome credential-sync helper ([--uninstall])",
+  pull: "Archive your Plaud library locally (v2) — [--all | --since D] [--until D] [--reconcile] [--dry-run]",
+  report: "Archive state, retries, and sync-lag calibration — [--lag] [--verify-audio N] [--json]",
+  doctor: "Check Node, the archive, Plaud's MCP package and login — [--install-mcp]",
+  login: "Sign in to Plaud once for pulls (Plaud's own browser sign-in)",
+  index: "Rebuild the archive index from manifests — rebuild",
 };
 
 export function version(): string {
@@ -51,7 +62,7 @@ export function version(): string {
 }
 
 export function usage(): string {
-  const order = ["import", "web", "set-auth", "check-auth", "probe", "fetch", "import-audio", "chrome-install"];
+  const order = ["pull", "report", "doctor", "login", "index", "import", "web", "set-auth", "check-auth", "probe", "fetch", "import-audio", "chrome-install"];
   const width = Math.max(...order.map((c) => c.length));
   const lines = order.map((c) => `  plaudport ${c.padEnd(width)}  ${SUMMARIES[c]}`);
   return [
@@ -62,6 +73,7 @@ export function usage(): string {
     ...lines,
     "",
     "Examples:",
+    "  plaudport doctor --install-mcp && plaudport login && plaudport pull --all",
     '  plaudport import "https://web.plaud.ai/s/pub_xxxx::xxxx"',
     "  plaudport import ~/Downloads/call.mp4 --title \"Acme sync\" --date \"2026-09-20 14:00\"",
     "  plaudport web",

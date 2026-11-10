@@ -362,6 +362,10 @@ async function main() {
   const wrongSite = await run(["src/shareProbe.ts", "https://evil.example.com/s/pub_x::y"], { PLAUD_DATA_DIR: DEMO_DIR });
   check(wrongSite.code !== 0 && /not in PLAUD_ALLOWED_HOSTS/.test(wrongSite.out), "refuses a link to a non-Plaud site");
 
+  // 8. v2 pull (P0): fake Plaud MCP server -> local archive, twice, then rebuild
+  console.log("\nStep 7: pulling a library from a fake Plaud MCP server (v2 archive)…");
+  await pullStep();
+
   server.close();
 
   console.log("\n" + "=".repeat(48));
@@ -376,6 +380,86 @@ async function main() {
     console.log(`${failures} CHECK(S) FAILED — send me the output above.`);
   }
   process.exit(failures === 0 ? 0 : 1);
+}
+
+
+/**
+ * P0-PLAN T11: `pull` against scripts/fake-plaud-mcp.mjs, twice — the second run
+ * exercises a retried download, a late-synced recording found by the overlap
+ * window, and a Plaud artifact that arrived late — then `index rebuild` must
+ * reproduce the derived ledger tables exactly (FR14c).
+ */
+async function pullStep() {
+  const fakeDir = join(DEMO_DIR, "fake-plaud");
+  const archive = join(DEMO_DIR, "archive");
+  mkdirSync(fakeDir, { recursive: true });
+  const day = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 19); // zone-less, like Plaud
+  const full = {
+    transcript: { items: [{ speaker: "Speaker 1", content: "synthetic" }] },
+    polish: { items: [{ speaker: "Speaker 1", content: "Synthetic." }] },
+    outline: { items: [{ topic: "synthetic" }] },
+    highlights: { items: [] },
+    note: { items: [{ data_type: "auto_sum_note", data_content: "synthetic summary" }] },
+  };
+  const recs = [
+    { id: "of_demo000001", name: "Demo A", start_at: day(2), created_at: day(2), duration: 60000, artifacts: full },
+    { id: "of_demo000002", name: "Demo B", start_at: day(1), created_at: day(1), duration: 60000, audioFailures: 1, artifacts: { ...full, note: { after: 1, items: [{ data_content: "late note" }] } } },
+    { id: "of_demo000003", name: "Demo late", start_at: day(6), created_at: day(0), duration: 60000, visibleFromRun: 2, artifacts: full },
+  ];
+  writeFileSync(join(fakeDir, "fixture.json"), JSON.stringify({ recordings: recs }));
+  const env = {
+    PLAUDPORT_ARCHIVE_ROOT: archive,
+    PLAUDPORT_MCP_ENTRY: join(ROOT, "scripts", "fake-plaud-mcp.mjs"),
+    PLAUDPORT_MCP_DIR: join(DEMO_DIR, "mcp"),
+    PLAUD_ALLOWED_HOSTS: "127.0.0.1",
+  };
+  const Database = (await import("better-sqlite3")).default;
+  const ledgerFile = join(archive, ".plaudport", "ledger.sqlite");
+  const q = (sql, ...a) => {
+    const db = new Database(ledgerFile, { readonly: true });
+    try {
+      return db.prepare(sql).all(...a);
+    } finally {
+      db.close();
+    }
+  };
+  const dumpDerived = () =>
+    [["recordings", "id"], ["recording_artifacts", "recording_id, artifact"], ["sync_lag_samples", "id"]]
+      .map(([t, o]) => JSON.stringify(q(`SELECT * FROM ${t} ORDER BY ${o}`)))
+      .join("\n");
+  const row = (id) => q("SELECT * FROM recordings WHERE id=?", id)[0];
+
+  const first = await run(["src/pullCli.ts", "--since", day(3).slice(0, 10)], env);
+  check(first.code === 0, "first pull ran", first.code === 0 ? undefined : first.out.slice(-400));
+  check(row("of_demo000001")?.audio_state === "audio_ok", "archived audio for a new recording, sha256 recorded");
+  check(row("of_demo000002")?.audio_state === "audio_failed", "a failing download is recorded as audio_failed, not dropped");
+  check(!row("of_demo000003"), "a recording not yet synced is not listed");
+  check(!/of_demo|Demo /.test(first.out), "the run log carries counts, never ids or titles");
+
+  // Fast-forward the retry clock by editing the MANIFEST (the authority): the
+  // next pull's startup reconcile re-derives the ledger from it.
+  const bDir = join(archive, row("of_demo000002").dir);
+  const m = JSON.parse(readFileSync(join(bDir, "manifest.json"), "utf8"));
+  m.states.audio.nextRetryAt = new Date(Date.now() - 1000).toISOString();
+  writeFileSync(join(bDir, "manifest.json"), JSON.stringify(m, null, 2) + "\n");
+
+  const second = await run(["src/pullCli.ts"], env);
+  check(second.code === 0, "second (ordinary) pull ran", second.code === 0 ? undefined : second.out.slice(-400));
+  check(row("of_demo000002")?.audio_state === "audio_ok", "the failed download was retried by id and succeeded");
+  check(row("of_demo000003")?.audio_state === "audio_ok", "the late-synced recording was found by the overlap window");
+  const notes = q("SELECT state FROM recording_artifacts WHERE recording_id='of_demo000002' AND artifact='note'")[0];
+  check(notes?.state === "present", "a Plaud note that arrived late was collected as a new revision");
+
+  const before = dumpDerived();
+  const rebuilt = await run(["src/indexCli.ts", "rebuild"], env);
+  check(rebuilt.code === 0, "index rebuild ran");
+  check(dumpDerived() === before, "index rebuild reproduced the derived ledger tables exactly");
+
+  const reconcile = await run(["src/pullCli.ts", "--reconcile"], env);
+  check(reconcile.code === 0 && / 0 new|new 0/.test(reconcile.out), "pull --reconcile finds no discovery defects");
+  const rep = await run(["src/reportCli.ts", "--lag", "--verify-audio", "10"], env);
+  check(rep.code === 0 && /3\/3 match/.test(rep.out), "report re-verified every archived audio hash");
+  check(!/of_demo|Demo /.test(rep.out), "the report is redacted");
 }
 
 main().catch((e) => {

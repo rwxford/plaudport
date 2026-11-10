@@ -295,3 +295,17 @@ test("> 500 recordings: --all pages through everything", async () => {
   assert.equal(report.listed, 520);
   assert.equal(report.pages, 6);
 });
+
+// --- CLI argument parsing ---------------------------------------------------------
+import { parsePullArgs } from "../pullCli.js";
+
+test("pull args", () => {
+  assert.deepEqual(parsePullArgs(["--since", "2026-10-15", "--until", "2026-10-15", "--dry-run"]), { since: "2026-10-15", until: "2026-10-15", dryRun: true });
+  assert.deepEqual(parsePullArgs(["--all"]), { all: true });
+  assert.deepEqual(parsePullArgs(["--recheck-text", "of_a", "of_b"]), { recheckText: ["of_a", "of_b"] });
+  assert.deepEqual(parsePullArgs(["--recheck-text", "--all"]), { recheckText: "all" });
+  assert.throws(() => parsePullArgs(["--since", "15/10/2026"]));
+  assert.throws(() => parsePullArgs(["--since", "2026-10-16", "--until", "2026-10-15"]));
+  assert.throws(() => parsePullArgs(["--recheck-text"]));
+  assert.throws(() => parsePullArgs(["--bogus"]));
+});
