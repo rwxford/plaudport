@@ -25,7 +25,7 @@
     "web": "node --import tsx src/webServer.ts",
     "check:auth": "tsx src/checkAuth.ts",
     "set:auth": "tsx src/setAuth.ts",
-    "test": "node --import tsx --test src/*.test.ts && npm run test:chrome",
+    "test": "node --import tsx --test src/*.test.ts src/*/*.test.ts && npm run test:chrome",
     "demo": "node scripts/demo.mjs",
     "typecheck": "tsc --noEmit",
     "check:secrets": "bash scripts/check-no-secrets.sh",
@@ -36,10 +36,13 @@
     "cli": "node bin/plaudport.mjs"
   },
   "devDependencies": {
-    "typescript": "^5.6.0",
-    "@types/node": "^22.0.0"
+    "@types/better-sqlite3": "7.6.13",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "better-sqlite3": "12.11.1",
     "tsx": "^4.19.0",
     "zod": "^3.23.8"
   }
