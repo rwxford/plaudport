@@ -590,7 +590,8 @@ Re-review of `51db58e`: the four reproductions pass; one new finding.
 |---|---|---|
 | CR-5 | **[P1]** A failed text fetch updated no timestamp, so a persistently failing recording stayed "never checked" and took the whole per-run cap every run. | The manifest records `states.textLastAttemptAt` on every attempt, success or failure (ledger column `text_last_attempt_at`, derived); scheduling rotates on it. Failures are still not *checks* (`lastCheckedAt` unchanged), so a failing recording never ages anything out — it is retried, fairly, indefinitely (FR1c spirit). |
 
-The re-review also saw one intermittent failure of the cross-process lock test
-that did not recur on rerun. Not reproduced here (25 solo, 8 full-suite and 24
-parallel-load runs all pass); the busy check now also accepts SQLite's extended
-`SQLITE_BUSY_*` / `SQLITE_LOCKED_*` codes. Failure output requested.
+The re-review also saw one intermittent failure of the cross-process lock test.
+
+| # | Finding | Fix |
+|---|---|---|
+| CR-6 | **[P1, root-caused from the failure output]** A second acquirer got the lock while the holder reported `HELD`, with no busy error. Cause: the test holder dropped its `ArchiveLock` reference; the GC finalized the better-sqlite3 connection, closing the fd, and the OS released the lock while the process believed it held it. Reproduced deterministically with a forced GC. Production callers keep the reference until `release()`, so `pull`/`index rebuild` were not affected, but the guarantee must not depend on that. | `lock.ts` keeps a module-level strong reference to every held lock until `release()` or exit. Regression test (`hold-gc`: drop the reference, force GC, then contend) fails without the fix. The extended `SQLITE_BUSY_*` check added earlier stays as hardening; it did not explain this failure. |

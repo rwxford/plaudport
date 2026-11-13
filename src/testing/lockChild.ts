@@ -3,6 +3,8 @@
  * exercised across real processes, not simulated in one.
  *
  *   hold  <root>                  acquire once; print HELD (or BUSY, exit 3); wait to be killed
+ *   hold-gc <root>                same, but DROP the reference and force GC before printing HELD
+ *                                 (run with --expose-gc): the lock must survive collection
  *   write <root> <rel> <count>    spin until acquired; write <count> revisions + manifests; release
  */
 import { ArchiveLock } from "../archive/lock.js";
@@ -17,6 +19,20 @@ if (mode === "hold") {
     process.stdout.write("BUSY\n");
     process.exit(3);
   }
+  process.stdout.write("HELD\n");
+  setInterval(() => {}, 1 << 30);
+} else if (mode === "hold-gc") {
+  (() => {
+    if (!ArchiveLock.tryAcquire(root!)) {
+      process.stdout.write("BUSY\n");
+      process.exit(3);
+    }
+  })();
+  const gc = (globalThis as { gc?: () => void }).gc;
+  if (!gc) throw new Error("run with --expose-gc");
+  gc();
+  await new Promise((r) => setTimeout(r, 50));
+  gc();
   process.stdout.write("HELD\n");
   setInterval(() => {}, 1 << 30);
 } else if (mode === "write") {

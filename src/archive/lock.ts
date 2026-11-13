@@ -30,6 +30,15 @@ export interface LockInfo {
   startedAt: string;
 }
 
+/**
+ * Strong references to every held lock. Without this, a caller that drops its
+ * ArchiveLock reference lets the GC finalize the better-sqlite3 connection,
+ * which closes the fd and makes the OS release the lock while the process still
+ * believes it holds it (reproduced; found by the Codex re-review of 51db58e).
+ * A lock now lives until release() or process exit, whatever the caller keeps.
+ */
+const HELD = new Set<ArchiveLock>();
+
 export class ArchiveLock {
   private constructor(
     private db: Database.Database | null,
@@ -59,7 +68,9 @@ export class ArchiveLock {
     } catch {
       /* informational only */
     }
-    return new ArchiveLock(db, root, info);
+    const lock = new ArchiveLock(db, root, info);
+    HELD.add(lock);
+    return lock;
   }
 
   get held(): boolean {
@@ -78,6 +89,7 @@ export class ArchiveLock {
     } finally {
       this.db.close();
       this.db = null;
+      HELD.delete(this);
     }
   }
 }

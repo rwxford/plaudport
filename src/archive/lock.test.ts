@@ -14,8 +14,8 @@ import { initInput, tempRoot } from "../testing/fixtures.js";
 
 const CHILD = join(dirname(fileURLToPath(import.meta.url)), "..", "testing", "lockChild.ts");
 
-function child(args: string[]): { proc: ChildProcess; line: Promise<string>; exit: Promise<number | null> } {
-  const proc = spawn(process.execPath, ["--import", "tsx", CHILD, ...args], { stdio: ["ignore", "pipe", "inherit"] });
+function child(args: string[], nodeFlags: string[] = []): { proc: ChildProcess; line: Promise<string>; exit: Promise<number | null> } {
+  const proc = spawn(process.execPath, [...nodeFlags, "--import", "tsx", CHILD, ...args], { stdio: ["ignore", "pipe", "inherit"] });
   const line = new Promise<string>((resolve) => {
     let buf = "";
     proc.stdout!.on("data", (d) => {
@@ -104,4 +104,18 @@ test("two interleaved writers serialize: no duplicate revision, no lost commit",
   const revs = readdirSync(dir).filter((n) => n.startsWith("rev-"));
   assert.ok(revs.every((n) => !n.endsWith(".tmp")), "no abandoned temp revisions");
   for (const h of r.manifest.history) assert.ok(revs.includes(h.rev), "history revisions were not cleaned up by the other writer");
+});
+
+test("the lock survives garbage collection even when the caller drops its reference", async () => {
+  // Regression: the GC finalized the SQLite connection, closing the fd and
+  // silently releasing the OS lock (the intermittent failure Codex reported).
+  const root = tempRoot();
+  const holder = child(["hold-gc", root], ["--expose-gc"]);
+  assert.equal(await holder.line, "HELD");
+  try {
+    assert.equal(ArchiveLock.tryAcquire(root), null, "still held after the holder's GC");
+  } finally {
+    holder.proc.kill("SIGKILL");
+    await holder.exit;
+  }
 });
