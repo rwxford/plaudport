@@ -568,3 +568,18 @@ consequences are in `PRD-PIPELINE.md` v10.
 | I11 | Dependency versions. | `@modelcontextprotocol/sdk` **1.32.2** (≤ 1.31 carries published advisories); `better-sqlite3` **12.11.1** (13.x needs Node 22; the repo supports 20). Both exact-pinned. The pre-existing `zod` 3.x advisory is unchanged here. | P0-D7 |
 | I12 | A recording's directory must not move if Plaud later edits `start_at`. | The dir is fixed at first sight; discovery finds it through the ledger, not by recomputing. | §6 |
 | I13 | Some platforms reject `fsync` on a directory fd. | Treated as a best-effort no-op there (the strongest guarantee available); the spy test still checks every directory sync is issued. | §6 |
+
+### Review response (implementation, `df9e081` → `fc957b8`)
+
+Independent review (Codex) of the implementation PR at `df9e081`: request
+changes, four findings, each reproduced on synthetic data. All fixed, each with
+a regression test that fails on `df9e081`:
+
+| # | Finding | Fix |
+|---|---|---|
+| CR-1 | **[P1]** The oldest pending bundles always filled the per-run text cap; later recordings could age out to `absent` without ever being checked. | Selection is never-checked first, then least-recently-checked; the cap counts fetches only; a bundle ages out only after at least one check (§4, §7 step 4 amended). |
+| CR-2 | **[P1]** Writing after a revision fallback copied the fallback revision's files but kept the newer manifest's `present` states, so an artifact could be dropped and never re-fetched. | Artifacts the verifying revision lacks are reopened (`pending`, age-out clock restarted) — in `pull` and in the startup sweep / `index rebuild` — and fetched again. |
+| CR-3 | **[P1]** A note entry with metadata but no string body (e.g. `data_content_error` when the package's linked-content fetch fails) counted as `present`. | A note is present only with a non-empty string body; anything else stays pending. |
+| CR-4 | **[P2]** `data_link` (a signed URL) survived into `plaud/note.json`. | Transcript blocks and notes are passed through `stripSecrets` in the adapter and again before persistence; it also drops any signed-URL string value. |
+
+Also added for the live gate: `plaudport gate g3b start|finish` (G3b).

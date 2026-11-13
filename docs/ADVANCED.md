@@ -53,6 +53,7 @@ freshness); they're listed and commented out at the bottom of `.env.example`.
 | `npm run pull -- --reconcile` | v2: list the whole library and log anything missing as a discovery defect (exit 2) |
 | `npm run pull -- --recheck-text <id>… \| --all` | v2: reopen Plaud artifacts that aged out to `absent` |
 | `npm run report -- [--lag] [--verify-audio N] [--json]` | v2: archive state, retries, sync-lag calibration, audio re-hash |
+| `npm run gate -- g3b start` / `g3b finish` | v2 gate G3b: keep one real audio URL, and 24 h later confirm it is refused and a refreshed one downloads the archived bytes |
 | `npm run index -- rebuild` | v2: rebuild the ledger's derived tables from manifests alone |
 | `npm run probe:share -- "<link>"` | Report what a public share link exposes |
 | `npm run import -- "<link>" \| <links.txt> \| <call.mp4>` | **Archive + import.** Share links, a file of them, recordings on disk (e.g. Gong downloads), or a mix |

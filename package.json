@@ -38,7 +38,8 @@
     "report": "tsx src/reportCli.ts",
     "doctor": "tsx src/doctorCli.ts",
     "login": "tsx src/loginCli.ts",
-    "index": "tsx src/indexCli.ts"
+    "index": "tsx src/indexCli.ts",
+    "gate": "tsx src/gateCli.ts"
   },
   "devDependencies": {
     "@types/better-sqlite3": "7.6.13",

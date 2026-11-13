@@ -29,6 +29,7 @@ export const COMMANDS: Record<string, string> = {
   doctor: "./doctorCli.js",
   login: "./loginCli.js",
   index: "./indexCli.js",
+  gate: "./gateCli.js",
 };
 
 /** command → a plain Node script (not TypeScript) to run in a child process. */
@@ -51,6 +52,7 @@ export const SUMMARIES: Record<string, string> = {
   doctor: "Check Node, the archive, Plaud's MCP package and login — [--install-mcp]",
   login: "Sign in to Plaud once for pulls (Plaud's own browser sign-in)",
   index: "Rebuild the archive index from manifests — rebuild",
+  gate: "Live P0 gate check G3b (expired audio URL) — g3b start | g3b finish",
 };
 
 export function version(): string {
@@ -62,7 +64,7 @@ export function version(): string {
 }
 
 export function usage(): string {
-  const order = ["pull", "report", "doctor", "login", "index", "import", "web", "set-auth", "check-auth", "probe", "fetch", "import-audio", "chrome-install"];
+  const order = ["pull", "report", "doctor", "login", "index", "gate", "import", "web", "set-auth", "check-auth", "probe", "fetch", "import-audio", "chrome-install"];
   const width = Math.max(...order.map((c) => c.length));
   const lines = order.map((c) => `  plaudport ${c.padEnd(width)}  ${SUMMARIES[c]}`);
   return [
