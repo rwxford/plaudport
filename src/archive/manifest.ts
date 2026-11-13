@@ -74,6 +74,12 @@ export const ManifestSchema = z.object({
     audio: AudioStatusSchema,
     textBundle: z.enum(BUNDLE_STATES),
     textPendingSince: z.string().nullable(),
+    /**
+     * When a text fetch was last ATTEMPTED (success or failure). Scheduling
+     * only: it rotates retries fairly. A failed attempt is not a check, so it
+     * never counts toward aging an artifact out (that uses lastCheckedAt).
+     */
+    textLastAttemptAt: z.string().nullable().default(null),
     artifacts: z.object(
       Object.fromEntries(ARTIFACTS.map((a) => [a, ArtifactStatusSchema])) as Record<Artifact, typeof ArtifactStatusSchema>,
     ),

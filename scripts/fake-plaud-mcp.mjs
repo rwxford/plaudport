@@ -20,6 +20,7 @@
  *     "id": "of_fake…", "name": "…", "start_at": "ISO", "created_at": "ISO", "duration": 60000,
  *     "visibleFromRun": 1,            // late sync: listed only from this server start onward
  *     "audioFailures": 0,             // the first N audio GETs answer 500
+ *     "textError": false,             // every transcript/note fetch fails (a non-retryable API error)
  *     "artifacts": {                  // each appears independently after its own N checks
  *       "transcript": { "after": 0, "items": [...] } | null,   // null = never
  *       "polish":     { "after": 0, "items": [...] } | null,
@@ -196,7 +197,7 @@ server.registerTool(
     const g = gate("get_transcript");
     if (g) return g;
     const rec = byId(file_id);
-    if (!rec) return err("Failed to get transcript: API error: 404 Not Found");
+    if (!rec || rec.textError) return err("Failed to get transcript: API error: 404 Not Found");
     const b = block ?? "transaction";
     // Only the first page of a block counts as a "check" of that artifact.
     const a = cursor ? rec.artifacts?.[BLOCK_OF[b]] : ready(rec, BLOCK_OF[b]);

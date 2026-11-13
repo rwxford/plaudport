@@ -395,3 +395,22 @@ test("[review 4] signed links never reach the archive", async () => {
     assert.doesNotMatch(readFileSync(join(m.dir, m.rev.rev, ...f.split("/")), "utf8"), /X-Amz-Signature|deadbeef/, f);
   }
 });
+
+test("[re-review] a persistently failing text fetch cannot monopolize the cap, and never ages anything out", async () => {
+  const a = fakeRecording(1, "2026-11-02T09:00:00", { textError: true });
+  const b = fakeRecording(2, "2026-11-03T09:00:00", { artifacts: { ...fullArtifacts(), outline: { after: 1000, items: [{ o: 1 }] } } });
+  const h = harness({ recordings: [a, b] }, { textChecksPerRun: 1 });
+  const r1 = await h.pull({ since: "2026-11-01" });
+  assert.equal(r1.report.text.errors, 1, "run 1 attempts the older recording, which fails");
+  assert.equal(h.row(b.id).arts.transcript, "pending");
+  await h.pull({}, new Date(T.getTime() + 3600_000));
+  assert.equal(h.row(b.id).arts.transcript, "present", "run 2 rotates to the next recording");
+  const r3 = await h.pull({}, new Date(T.getTime() + 7200_000));
+  assert.equal(r3.report.text.errors, 1, "run 3 retries the failing one");
+  // Past the deadline, failed attempts are not checks: nothing of A ages out.
+  await h.pull({}, new Date(T.getTime() + 9 * DAY));
+  await h.pull({}, new Date(T.getTime() + 9 * DAY + 3600_000));
+  assert.equal(h.row(a.id).arts.transcript, "pending");
+  assert.equal(h.row(a.id).arts.note, "pending");
+  assert.equal(h.row(b.id).arts.outline, "absent", "B, checked before, does age out");
+});

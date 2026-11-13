@@ -19,6 +19,7 @@ export interface FakeRecording {
   duration?: number;
   visibleFromRun?: number;
   audioFailures?: number;
+  textError?: boolean;
   artifacts?: Partial<Record<"transcript" | "polish" | "outline" | "highlights" | "note", FakeArtifact | null>>;
 }
 export interface FakeFixture {

@@ -188,6 +188,7 @@ function manifestFromMeta(meta: MetaDoc, entry: RevEntry): Manifest {
       audio: meta.observed.audio,
       textBundle: "plaud_text_pending",
       textPendingSince: meta.observed.textPendingSince,
+      textLastAttemptAt: null,
       artifacts: meta.observed.artifacts,
     },
   };

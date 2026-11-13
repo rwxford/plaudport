@@ -84,7 +84,8 @@ export class ArchiveLock {
 
 function isBusy(e: unknown): boolean {
   const code = (e as { code?: string }).code ?? "";
-  return code === "SQLITE_BUSY" || code === "SQLITE_LOCKED" || /database is locked/i.test(String(e));
+  // Extended codes too (SQLITE_BUSY_RECOVERY, SQLITE_LOCKED_SHAREDCACHE, …).
+  return code.startsWith("SQLITE_BUSY") || code.startsWith("SQLITE_LOCKED") || /database is (locked|busy)/i.test(String(e));
 }
 
 /**

@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS recordings (
   text_bundle_state TEXT NOT NULL CHECK (text_bundle_state IN
                   ('plaud_text_pending','plaud_text_ok','plaud_text_absent')),
   text_pending_since TEXT,
+  text_last_attempt_at TEXT,
   manifest_rev  TEXT,
   manifest_hash TEXT
 );
@@ -83,6 +84,7 @@ export interface RecordingRow {
   audio_next_retry_at: string | null;
   text_bundle_state: string;
   text_pending_since: string | null;
+  text_last_attempt_at: string | null;
   manifest_rev: string | null;
   manifest_hash: string | null;
 }
@@ -106,6 +108,7 @@ export function rowFromManifest(m: Manifest, manifestHash: string | null): Recor
     audio_next_retry_at: m.states.audio.nextRetryAt,
     text_bundle_state: m.states.textBundle,
     text_pending_since: m.states.textPendingSince,
+    text_last_attempt_at: m.states.textLastAttemptAt,
     manifest_rev: m.current.rev,
     manifest_hash: manifestHash,
   };
@@ -129,6 +132,11 @@ export class Ledger {
     this.db = new Database(path);
     this.db.pragma("journal_mode = WAL");
     this.db.exec(SCHEMA);
+    // Ledgers created before this column existed: add it (the sweep fills it).
+    const cols = this.db.prepare("PRAGMA table_info(recordings)").all() as { name: string }[];
+    if (!cols.some((c) => c.name === "text_last_attempt_at")) {
+      this.db.exec("ALTER TABLE recordings ADD COLUMN text_last_attempt_at TEXT; UPDATE recordings SET manifest_hash = NULL;");
+    }
   }
 
   close(): void {
@@ -208,18 +216,18 @@ export class Ledger {
   }
 
   /**
-   * Every pending bundle regardless of age (R2-2). Never-checked recordings
-   * first, then least-recently-checked, so a per-run cap rotates through the
-   * backlog instead of re-checking the same oldest bundles every run.
+   * Every pending bundle regardless of age (R2-2). Never-attempted recordings
+   * first, then least-recently-ATTEMPTED (a failed fetch counts as an attempt
+   * here), so a per-run cap rotates through the backlog — neither the oldest
+   * bundles nor a persistently failing one can monopolize it.
    */
-  textPending(): (RecordingRow & { last_text_check: string | null })[] {
+  textPending(): RecordingRow[] {
     return this.db
       .prepare(
-        `SELECT r.*, (SELECT MAX(a.last_checked_at) FROM recording_artifacts a WHERE a.recording_id = r.id) AS last_text_check
-         FROM recordings r WHERE r.text_bundle_state='plaud_text_pending'
-         ORDER BY last_text_check ASC, r.text_pending_since ASC, r.start_at ASC`,
+        `SELECT * FROM recordings WHERE text_bundle_state='plaud_text_pending'
+         ORDER BY text_last_attempt_at ASC, text_pending_since ASC, start_at ASC`,
       )
-      .all() as (RecordingRow & { last_text_check: string | null })[];
+      .all() as RecordingRow[];
   }
 
   artifacts(id: string): Record<Artifact, string> {

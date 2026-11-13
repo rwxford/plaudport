@@ -583,3 +583,14 @@ a regression test that fails on `df9e081`:
 | CR-4 | **[P2]** `data_link` (a signed URL) survived into `plaud/note.json`. | Transcript blocks and notes are passed through `stripSecrets` in the adapter and again before persistence; it also drops any signed-URL string value. |
 
 Also added for the live gate: `plaudport gate g3b start|finish` (G3b).
+
+Re-review of `51db58e`: the four reproductions pass; one new finding.
+
+| # | Finding | Fix |
+|---|---|---|
+| CR-5 | **[P1]** A failed text fetch updated no timestamp, so a persistently failing recording stayed "never checked" and took the whole per-run cap every run. | The manifest records `states.textLastAttemptAt` on every attempt, success or failure (ledger column `text_last_attempt_at`, derived); scheduling rotates on it. Failures are still not *checks* (`lastCheckedAt` unchanged), so a failing recording never ages anything out — it is retried, fairly, indefinitely (FR1c spirit). |
+
+The re-review also saw one intermittent failure of the cross-process lock test
+that did not recur on rerun. Not reproduced here (25 solo, 8 full-suite and 24
+parallel-load runs all pass); the busy check now also accepts SQLite's extended
+`SQLITE_BUSY_*` / `SQLITE_LOCKED_*` codes. Failure output requested.

@@ -329,6 +329,7 @@ export async function runPull(opts: PullOptions, deps: PullDeps): Promise<{ exit
         if (fetches >= cfg.textChecksPerRun) continue;
         fetches++;
         report.text.checked++;
+        m = { ...m, states: { ...m.states, textLastAttemptAt: at.toISOString() } };
         let t: PlaudText;
         try {
           t = await source.text(row.id);
@@ -336,6 +337,10 @@ export async function runPull(opts: PullOptions, deps: PullDeps): Promise<{ exit
           if (e instanceof AuthError) throw e;
           report.text.errors++;
           bump((e as { errorClass?: string }).errorClass ?? "text_error");
+          // Record the attempt (rotation) without counting it as a check
+          // (no lastCheckedAt), so a failure never ages anything out.
+          commitManifest(dir, m);
+          ledger.upsertFromManifest(m, sha256(readFileSync(join(dir, "manifest.json"))));
           continue;
         }
         const seen = observe(t);
