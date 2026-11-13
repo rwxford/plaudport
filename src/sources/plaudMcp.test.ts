@@ -123,3 +123,11 @@ test("429s are retried with backoff and counted", async () => {
     await src.close();
   }
 });
+
+test("stripSecrets also drops any signed-URL string value", () => {
+  const signed = "https://x.s3.amazonaws.com/a?X-Amz-Signature=abc";
+  assert.deepEqual(stripSecrets({ keep: "https://example.com/page?x=1", link: signed, list: [signed, "ok"] }), {
+    keep: "https://example.com/page?x=1",
+    list: ["ok"],
+  });
+});

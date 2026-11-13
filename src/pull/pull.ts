@@ -24,6 +24,7 @@ import {
 } from "../archive/revision.js";
 import { Ledger } from "../ledger/db.js";
 import { sweepArchive, type SweepResult } from "../ledger/sweep.js";
+import { stripSecrets } from "../sources/plaudMcp.js";
 import { AuthError, type PlaudText, type RecordingDetail, type RecordingSource, type RecordingSummary } from "../sources/types.js";
 import { DownloadError, downloadToPart } from "./download.js";
 import {
@@ -33,7 +34,9 @@ import {
   initialArtifacts,
   initialAudio,
   nextAudio,
+  everChecked,
   pastTextDeadline,
+  reconcileManifestWithRevision,
   reopenAbsent,
   urlNeedsRefresh,
 } from "./states.js";
@@ -142,12 +145,16 @@ export function observe(t: PlaudText): Partial<Record<Artifact, boolean | "absen
   const b = (name: string) => t.transcript.find((x) => x.block === name);
   const has = (name: string) => (b(name)?.items.length ?? 0) > 0;
   const hl = b("mark_memo");
+  // A note counts only with a usable body. Metadata alone, or an entry whose
+  // linked content failed to load (`data_content_error`), stays pending so a
+  // later run fetches the real summary.
   const noteHas = (t.note ?? []).some((n) => {
+    if (typeof n === "string") return n.trim().length > 0;
     if (n && typeof n === "object") {
       const c = (n as Record<string, unknown>).data_content;
-      return typeof c === "string" ? c.trim().length > 0 : Object.keys(n).length > 0;
+      return typeof c === "string" && c.trim().length > 0;
     }
-    return typeof n === "string" ? n.trim().length > 0 : n !== null && n !== undefined;
+    return false;
   });
   return {
     transcript: has("transaction"),
@@ -161,7 +168,8 @@ export function observe(t: PlaudText): Partial<Record<Artifact, boolean | "absen
 function artifactBody(t: PlaudText, a: Artifact): string {
   const block = { transcript: "transaction", polish: "transaction_polish", outline: "outline", highlights: "mark_memo" } as const;
   const body = a === "note" ? t.note ?? [] : t.transcript.find((x) => x.block === block[a])?.items ?? [];
-  return JSON.stringify(body, null, 2) + "\n";
+  // Defense in depth: the adapter strips signed links already.
+  return JSON.stringify(stripSecrets(body), null, 2) + "\n";
 }
 
 export async function runPull(opts: PullOptions, deps: PullDeps): Promise<{ exitCode: number; report: PullReport }> {
@@ -301,17 +309,25 @@ export async function runPull(opts: PullOptions, deps: PullDeps): Promise<{ exit
     }
 
     // --- 4. Plaud text, per artifact ---------------------------------------------------
-    for (const row of ledger.textPending(cfg.textChecksPerRun)) {
+    // Never-checked bundles first, then least-recently-checked (fair rotation
+    // under the per-run cap). Aging out is free (no fetch) but only for a
+    // bundle that has been checked at least once: nothing is declared absent
+    // without having been asked for.
+    let fetches = 0;
+    for (const row of ledger.textPending()) {
       const dir = absDir(root, row.dir);
       const r = readRecording(dir);
       if (r.status !== "ok") continue;
-      let m = r.manifest;
       const at = now();
-      if (pastTextDeadline(m.states.textPendingSince, at, cfg.textTimeoutDays)) {
+      let m = (r.fellBack && reconcileManifestWithRevision(r.manifest, r.rev, at)) || r.manifest;
+      const overdue = pastTextDeadline(m.states.textPendingSince, at, cfg.textTimeoutDays);
+      if (overdue && everChecked(m.states.artifacts)) {
         const arts = applyTextCheck(m.states.artifacts, { pastDeadline: true }, at);
         report.text.agedOut++;
         m = { ...m, states: { ...m.states, artifacts: arts, textBundle: deriveBundle(arts) } };
       } else {
+        if (fetches >= cfg.textChecksPerRun) continue;
+        fetches++;
         report.text.checked++;
         let t: PlaudText;
         try {
@@ -346,6 +362,12 @@ export async function runPull(opts: PullOptions, deps: PullDeps): Promise<{ exit
           report.text.newlyPresent += fresh.length;
         } else {
           const arts = applyTextCheck(m.states.artifacts, { pastDeadline: false, observed: seen, presentRev }, at);
+          m = { ...m, states: { ...m.states, artifacts: arts, textBundle: deriveBundle(arts) } };
+        }
+        if (overdue) {
+          // Its one guaranteed check is done; whatever is still pending ages out.
+          const arts = applyTextCheck(m.states.artifacts, { pastDeadline: true }, at);
+          if (ARTIFACTS.some((a) => m.states.artifacts[a].state !== arts[a].state)) report.text.agedOut++;
           m = { ...m, states: { ...m.states, artifacts: arts, textBundle: deriveBundle(arts) } };
         }
       }

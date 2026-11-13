@@ -309,3 +309,89 @@ test("pull args", () => {
   assert.throws(() => parsePullArgs(["--recheck-text"]));
   assert.throws(() => parsePullArgs(["--bogus"]));
 });
+
+// --- Codex review of df9e081: regression tests ---------------------------------------
+import { observe } from "./pull.js";
+import { rebuildIndex } from "../ledger/sweep.js";
+import { writeFileSync as writeFile } from "node:fs";
+
+test("[review 1] a capped text check rotates through the backlog; nothing ages out unchecked", async () => {
+  const never = { after: 1000, items: [{ o: 1 }] };
+  const a = fakeRecording(1, "2026-11-02T09:00:00", { artifacts: { ...fullArtifacts(), outline: never } });
+  const b = fakeRecording(2, "2026-11-03T09:00:00", { artifacts: { ...fullArtifacts(), outline: never } });
+  const h = harness({ recordings: [a, b] }, { textChecksPerRun: 1 });
+  await h.pull({ since: "2026-11-01" });
+  assert.equal(h.row(a.id).arts.transcript, "present", "first run checks the never-checked oldest");
+  assert.equal(h.row(b.id).arts.transcript, "pending");
+  // Next run is already past the deadline: A ages out for free, B gets its first check.
+  await h.pull({}, new Date(T.getTime() + 8 * DAY));
+  assert.equal(h.row(b.id).arts.transcript, "present", "B was checked before anything was declared absent");
+  assert.equal(h.row(b.id).arts.outline, "absent", "after its one check, B's still-pending artifacts age out");
+  assert.equal(h.row(a.id).arts.outline, "absent");
+  assert.equal(h.row(a.id).arts.transcript, "present");
+});
+
+test("[review 2] after a revision fallback, artifacts only the bad revision held are re-fetched, not dropped", async () => {
+  const r = fakeRecording(1, "2026-11-04T09:00:00", { artifacts: { ...fullArtifacts(), note: { after: 1, items: [{ data_content: "n" }] } } });
+  const h = harness({ recordings: [r] });
+  await h.pull({ since: "2026-11-01" });
+  const m1 = h.manifest(r.id);
+  assert.equal(m1.manifest.current.rev, "rev-0002");
+  writeFile(join(m1.dir, "rev-0002", "plaud", "transcript.json"), "tampered");
+  await h.pull({}, new Date(T.getTime() + 3600_000));
+  const m2 = h.manifest(r.id);
+  assert.equal(m2.fellBack, false);
+  for (const f of ["plaud/transcript.json", "plaud/note.json"]) assert.ok(m2.rev.artifacts[f], `${f} in the new verified revision`);
+  assert.equal(h.row(r.id).arts.transcript, "present");
+  assert.equal(h.row(r.id).arts.note, "present");
+});
+
+test("[review 2] index rebuild reopens a present artifact whose revision no longer verifies", async () => {
+  const r = fakeRecording(1, "2026-11-04T09:00:00", { artifacts: { ...fullArtifacts(), note: { after: 1, items: [{ data_content: "n" }] } } });
+  const h = harness({ recordings: [r] });
+  await h.pull({ since: "2026-11-01" });
+  await h.pull({}, new Date(T.getTime() + 3600_000)); // rev-0003 carries transcript + note
+  const m = h.manifest(r.id);
+  writeFile(join(m.dir, m.manifest.current.rev, "plaud", "note.json"), "tampered");
+  const lock = ArchiveLock.tryAcquire(h.root)!;
+  const l = new Ledger(ledgerPath(h.root));
+  const res = rebuildIndex(h.root, l, lock, new Date(T.getTime() + 7200_000));
+  l.close();
+  lock.release();
+  assert.equal(res.fellBack.length, 1);
+  assert.equal(h.row(r.id).arts.note, "pending", "the note is reopened, not left present with no file");
+  assert.equal(h.row(r.id).arts.transcript, "present", "the fallback revision still holds the transcript");
+  assert.equal(h.row(r.id).row?.text_bundle_state, "plaud_text_pending");
+  await h.pull({}, new Date(T.getTime() + 3 * 3600_000));
+  assert.ok(h.manifest(r.id).rev.artifacts["plaud/note.json"], "and fetched again on the next pull");
+});
+
+test("[review 3] note metadata without a usable body (or a failed link load) stays pending", () => {
+  const t = (note: unknown[] | null) => observe({ transcript: [], note });
+  assert.equal(t([{ data_type: "auto_sum_note", data_content: null, data_content_error: "fetch failed" }]).note, false);
+  assert.equal(t([{ data_type: "auto_sum_note", data_content: "" }]).note, false);
+  assert.equal(t([{ data_type: "auto_sum_note" }]).note, false);
+  assert.equal(t([{ data_type: "auto_sum_note", data_content: { nested: true } }]).note, false);
+  assert.equal(t([{ data_type: "x", data_content: null }, { data_type: "auto_sum_note", data_content: "summary" }]).note, true);
+  assert.equal(t(["plain text note"]).note, true);
+  assert.equal(t(null).note, false);
+});
+
+test("[review 4] signed links never reach the archive", async () => {
+  const signed = "https://bucket.s3.us-west-2.amazonaws.com/n.json?X-Amz-Algorithm=AWS4&X-Amz-Signature=deadbeef";
+  const r = fakeRecording(1, "2026-11-04T09:00:00", {
+    artifacts: {
+      ...fullArtifacts(),
+      note: { items: [{ data_type: "auto_sum_note", data_content: "summary", data_link: signed }] },
+      outline: { items: [{ topic: "t", attachment: signed }] },
+    },
+  });
+  const h = harness({ recordings: [r] });
+  await h.pull({ since: "2026-11-01" });
+  const m = h.manifest(r.id);
+  const note = readFileSync(join(m.dir, m.rev.rev, "plaud", "note.json"), "utf8");
+  assert.match(note, /summary/);
+  for (const f of Object.keys(m.rev.artifacts)) {
+    assert.doesNotMatch(readFileSync(join(m.dir, m.rev.rev, ...f.split("/")), "utf8"), /X-Amz-Signature|deadbeef/, f);
+  }
+});

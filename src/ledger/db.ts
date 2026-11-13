@@ -207,14 +207,19 @@ export class Ledger {
       .all(now.toISOString()) as RecordingRow[];
   }
 
-  /** Every pending bundle regardless of age (R2-2), oldest text_pending_since first. */
-  textPending(limit: number): RecordingRow[] {
+  /**
+   * Every pending bundle regardless of age (R2-2). Never-checked recordings
+   * first, then least-recently-checked, so a per-run cap rotates through the
+   * backlog instead of re-checking the same oldest bundles every run.
+   */
+  textPending(): (RecordingRow & { last_text_check: string | null })[] {
     return this.db
       .prepare(
-        `SELECT * FROM recordings WHERE text_bundle_state='plaud_text_pending'
-         ORDER BY text_pending_since ASC, start_at ASC LIMIT ?`,
+        `SELECT r.*, (SELECT MAX(a.last_checked_at) FROM recording_artifacts a WHERE a.recording_id = r.id) AS last_text_check
+         FROM recordings r WHERE r.text_bundle_state='plaud_text_pending'
+         ORDER BY last_text_check ASC, r.text_pending_since ASC, r.start_at ASC`,
       )
-      .all(limit) as RecordingRow[];
+      .all() as (RecordingRow & { last_text_check: string | null })[];
   }
 
   artifacts(id: string): Record<Artifact, string> {

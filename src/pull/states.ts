@@ -1,5 +1,8 @@
 import {
+  ARTIFACT_FILE,
   ARTIFACTS,
+  type Manifest,
+  type RevEntry,
   type Artifact,
   type ArtifactState,
   type ArtifactStatus,
@@ -130,6 +133,45 @@ export function deriveBundle(a: Record<Artifact, ArtifactStatus>): BundleState {
   if (states.some((s) => s === "pending")) return "plaud_text_pending";
   if (states.every((s) => s === "absent")) return "plaud_text_absent";
   return "plaud_text_ok";
+}
+
+/** Has any text check ever run for this bundle? */
+export function everChecked(a: Record<Artifact, ArtifactStatus>): boolean {
+  return ARTIFACTS.some((k) => a[k].lastCheckedAt !== null);
+}
+
+/**
+ * After a read fell back to an older revision, an artifact the manifest calls
+ * `present` may have no file in the revision that actually verifies. Reopen it
+ * (pending) so it is fetched again instead of being dropped by the next write.
+ */
+export function reconcileWithRevision(
+  a: Record<Artifact, ArtifactStatus>,
+  hasFile: (a: Artifact) => boolean,
+): { artifacts: Record<Artifact, ArtifactStatus>; reopened: Artifact[] } {
+  const out = { ...a };
+  const reopened: Artifact[] = [];
+  for (const k of ARTIFACTS) {
+    if (a[k].state === "present" && !hasFile(k)) {
+      out[k] = { state: "pending", lastCheckedAt: null, presentRev: null };
+      reopened.push(k);
+    }
+  }
+  return { artifacts: out, reopened };
+}
+
+/**
+ * Manifest-level form of `reconcileWithRevision`: `null` when nothing changed.
+ * A reopened artifact restarts the bundle's age-out clock, so it is checked
+ * again rather than aged out on the spot.
+ */
+export function reconcileManifestWithRevision(m: Manifest, rev: RevEntry, now: Date): Manifest | null {
+  const { artifacts, reopened } = reconcileWithRevision(m.states.artifacts, (k) => ARTIFACT_FILE[k] in rev.artifacts);
+  if (!reopened.length) return null;
+  return {
+    ...m,
+    states: { ...m.states, artifacts, textBundle: deriveBundle(artifacts), textPendingSince: now.toISOString() },
+  };
 }
 
 /** `--recheck-text`: reopen absent artifacts; the age-out clock restarts now. */

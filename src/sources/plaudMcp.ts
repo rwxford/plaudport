@@ -140,17 +140,28 @@ function toSummary(item: z.infer<typeof ListItem>): RecordingSummary {
   };
 }
 
-/** Remove presigned links from anything we persist (they are bearer URLs). */
+const DROP = Symbol("drop");
+
+/** A string that carries a signed-URL query (a bearer credential). */
+const SIGNED_URL = /^https?:\/\/\S*[?&](X-Amz-Signature|X-Amz-Credential|Signature|Expires|OSSAccessKeyId)=/i;
+
+/**
+ * Remove presigned links from anything we persist or log: the known keys
+ * (`presigned_url`, `data_link`) and any other string value that is a signed
+ * URL. They are bearer credentials, valid for hours.
+ */
 export function stripSecrets(v: unknown): unknown {
-  if (Array.isArray(v)) return v.map(stripSecrets);
+  if (Array.isArray(v)) return v.map(stripSecrets).filter((x) => x !== DROP);
   if (v && typeof v === "object") {
     const out: Record<string, unknown> = {};
     for (const [k, val] of Object.entries(v)) {
       if (k === "presigned_url" || k === "data_link") continue;
-      out[k] = stripSecrets(val);
+      const s = stripSecrets(val);
+      if (s !== DROP) out[k] = s;
     }
     return out;
   }
+  if (typeof v === "string" && SIGNED_URL.test(v.trim())) return DROP;
   return v;
 }
 
@@ -250,7 +261,7 @@ export async function createPlaudMcpSource(opts: PlaudMcpOptions): Promise<Recor
 
   async function block(id: string, name: TranscriptBlockName): Promise<TranscriptBlock> {
     const items: unknown[] = [];
-    const done = (): TranscriptBlock => ({ block: name, items, status: items.length ? "items" : "empty" });
+    const done = (): TranscriptBlock => ({ block: name, items: stripSecrets(items) as unknown[], status: items.length ? "items" : "empty" });
     let cursor: string | undefined;
     for (let guard = 0; guard < 10_000; guard++) {
       const args: Record<string, unknown> = { file_id: id, block: name, limit: 500 };
@@ -319,7 +330,7 @@ export async function createPlaudMcpSource(opts: PlaudMcpOptions): Promise<Recor
       if (inner !== null) {
         try {
           const parsed = JSON.parse(inner);
-          note = Array.isArray(parsed) ? parsed : [parsed];
+          note = stripSecrets(Array.isArray(parsed) ? parsed : [parsed]) as unknown[];
         } catch {
           note = inner.trim() ? [inner] : null;
         }

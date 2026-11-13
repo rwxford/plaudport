@@ -2,7 +2,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { absDir, MANIFEST } from "../archive/layout.js";
 import type { ArchiveLock } from "../archive/lock.js";
-import { cleanupRecording, completeInterruptedInit, listRecordingDirs, readRecording, sha256 } from "../archive/revision.js";
+import { cleanupRecording, commitManifest, completeInterruptedInit, listRecordingDirs, readRecording, sha256 } from "../archive/revision.js";
+import { reconcileManifestWithRevision } from "../pull/states.js";
 import type { Ledger } from "./db.js";
 
 /**
@@ -60,11 +61,23 @@ export function sweepArchive(
       if (row) ledger.remove(row.id);
       continue;
     }
-    if (r.fellBack) res.fellBack.push(rel);
-    ledger.upsertFromManifest(r.manifest, hash);
-    seen.add(r.manifest.id);
+    let m = r.manifest;
+    let h = hash;
+    if (r.fellBack) {
+      res.fellBack.push(rel);
+      // Artifacts only the unverifiable revision held are reopened, so the
+      // next text check fetches them again (they are not silently dropped).
+      const fixed = reconcileManifestWithRevision(m, r.rev, now);
+      if (fixed) {
+        commitManifest(dir, fixed);
+        m = fixed;
+        h = sha256(readFileSync(mp));
+      }
+    }
+    ledger.upsertFromManifest(m, h);
+    seen.add(m.id);
     res.rederived++;
-    res.cleaned += cleanupRecording(dir, r.manifest, now).length;
+    res.cleaned += cleanupRecording(dir, m, now).length;
   }
   // A ledger row whose recording dir vanished is not derived from anything.
   for (const id of ledger.allIds()) if (!seen.has(id)) ledger.remove(id);
