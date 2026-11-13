@@ -1,6 +1,8 @@
 # P0 Plan — Pull
 
-**Milestone:** P0 of `PRD-PIPELINE.md` · **Status:** v4 — **approved for
+**Milestone:** P0 of `PRD-PIPELINE.md` · **Status:** v4 — approved, **implemented**
+(2026-11-10; deviations found while building are in §12; live gate in
+`P0-GATE.md`, pending) · was: **approved for
 implementation** (independent review, Codex, of `1722e92`; four review cycles,
 `fa7bd06`→`1722e92`, plus a working-agent read); two nonblocking wording
 cleanups (P0-D5, T10) applied after approval, 2026-11-09 · **Implements:** FR1, FR1a–d, FR2 (interface +
@@ -79,7 +81,7 @@ Plaud's published package or docs.
 | # | Decision | Reasoning |
 |---|---|---|
 | P0-D1 | `plaud-mcp` adapter = exec a **pin-installed** `@plaud-ai/mcp@<pinned>` as a stdio MCP server; talk to it with `@modelcontextprotocol/sdk` `Client`. The package is installed once into a managed location (`<ApplicationSupport>/PlaudPort/mcp/`, or an opt-in repo-local `node_modules` entry) and the adapter execs its resolved bin directly. **Not `npx -y` per run** (W1): hourly unattended runs must not depend on a network resolve, and an offline/flaky moment must not fail a pull. `doctor` reports installed-vs-pinned drift and re-installs on request. | F1, F10, W1. Official, refresh-capable, no reverse engineering, no per-run resolution. |
-| P0-D2 | Login is the owner's job, once: `plaudport doctor` detects a missing/expired `~/.plaud/tokens-mcp.json` and tells the owner to run `npx @plaud-ai/mcp login` (browser). PlaudPort never drives the OAuth flow itself. | Keeps PlaudPort out of the credential-acquisition business; the refresh token then carries unattended runs. |
+| P0-D2 | Login is the owner's job, once: `plaudport doctor` detects a missing/expired `~/.plaud/tokens-mcp.json` and tells the owner to run `plaudport login`, which calls the pinned package's **own `login` MCP tool**: Plaud's code runs the browser OAuth and stores the refresh token. PlaudPort never drives the OAuth flow itself and never sees, stores or refreshes a token. *(Amended 2026-11-13, owner-approved: the originally named `npx @plaud-ai/mcp login` does not exist in the pinned package — §12 I1. The package's `install` command was rejected because it also rewrites AI-client configs.)* | Keeps PlaudPort out of the credential-acquisition business; the refresh token then carries unattended runs. |
 | P0-D3 | Ledger = SQLite (`better-sqlite3`), one file under the archive root (`<archive-root>/.plaudport/ledger.sqlite`), **derived and rebuildable** from manifests (FR14c). | PRD §7. Co-locating with the archive means a moved archive brings its ledger. |
 | P0-D4 | The new archive (FR14) is a **new tree**, `<archive-root>/<YYYY>/<MM>/<id>/`, separate from the v1 `data/shares/` and `data/imports/` trees. v1 trees are left untouched in P0; a one-way `plaudport migrate-v1` is a P3 question, recorded in §9. | Avoids two live formats in one tree while keeping v1 commands working. |
 | P0-D5 | P0 already produces **several revisions per recording**: `rev-0001/` holds `meta.json` at discovery (no Plaud text yet), and each Plaud artifact that arrives later (transcript, note, …) adds a further revision carrying the artifacts known so far; `audio.mp3` is written once at the recording root and referenced by all revisions. The full revision/manifest machinery (FR14b) is therefore exercised for real in P0 — `current` + `history`, trimming, fallback — not merely built ahead of P1. | The atomicity contract is load-bearing from the first milestone, so it is tested under real multi-revision writes now. |
@@ -475,7 +477,7 @@ the result is recorded. Anything not run is recorded as **pending** in
 
 | # | Check | Class | Prerequisite | Runs | Evidence recorded |
 |---|---|---|---|---|---|
-| G1 | Full-library paging: `pull --all --dry-run` lists every recording; total equals the count shown in Plaud web (owner reads it off the UI) | b | owner logged in via `npx @plaud-ai/mcp login`; library > 500 (F4) | owner | listed count, web count, pages fetched, 429 count |
+| G1 | Full-library paging: `pull --all --dry-run` lists every recording; total equals the count shown in Plaud web (owner reads it off the UI) | b | owner logged in via `plaudport login`; library > 500 (F4) | owner | listed count, web count, pages fetched, 429 count |
 | G1a | Same as G1 via the local package confirms F2 (filtered paging works) | b | as G1 | owner | page count and distinctness check from `report` |
 | G1c | **Real backfill, not a dry run (C6):** after G1, `pull --all` actually downloads; then verify that **the count of `audio_ok` recordings equals the listed count** (minus any Plaud reports as audio-less) and that **sha256 re-verification of a random sample (≥ 20, or all if fewer) passes**. A run where downloads silently failed cannot pass this. | b (+ a on fake) | G1 done; disk + time (R3) | owner | audio_ok vs. listed, sample hashes re-verified |
 | G2 | Dense day: `pull --since <day> --until <day> --dry-run` on a day with ≥ 10 recordings matches the web UI for that day. The `--until` bound is what makes the total comparable to one day (C6). | b | owner picks the day | owner | count vs. web count |
@@ -533,7 +535,7 @@ calibration (class c, §7); restore verification (FR14d, P5).
 ```bash
 npm install                              # adds better-sqlite3, @modelcontextprotocol/sdk
 npm run doctor -- --install-mcp          # pin-installs @plaud-ai/mcp (P0-D1), then checks
-npx @plaud-ai/mcp@<pinned> login         # once; browser; tokens in ~/.plaud/
+npm run login                            # once; Plaud's own sign-in in the browser; tokens in ~/.plaud/
 npm run doctor                           # all green before pulling
 npm run pull -- --since 2026-10-15 --until 2026-10-15 --dry-run  # G2 one-day check, writes nothing
 npm run pull -- --all                    # first full archive; long (R3)
@@ -545,3 +547,51 @@ A bare `npm run pull` (no `--since`/`--all`) only reaches back
 `PLAUDPORT_PULL_OVERLAP_DAYS` (default 14); the **first** archive needs `--all`
 (or `--since <date>`) to backfill history (W3). The README's "Pull your library"
 section leads with that.
+
+## 12. Implementation notes (2026-11-10)
+
+What building P0 found that this plan did not say, or said differently. Spec
+consequences are in `PRD-PIPELINE.md` v10.
+
+| # | Finding | What the code does | Plan/PRD |
+|---|---|---|---|
+| I1 | **`npx @plaud-ai/mcp login` does not exist** in the pinned 0.3.14: sign-in is the package's `login` MCP tool, or its `install` command (which also rewrites Claude/Codex client configs). | `plaudport login` spawns the pinned package and calls its own `login` tool; Plaud's code runs the browser OAuth and writes `~/.plaud/tokens-mcp.json`. PlaudPort still never sees, stores or refreshes a token. | **P0-D2 amended — approved by the owner 2026-11-13.** PRD §4. |
+| I2 | The package reads `PLAUD_API_BASE` (and other `PLAUD_*`) from its environment — the same names PlaudPort's `.env` uses for the v1 web API. Inherited, it would send the OAuth bearer to the wrong host. | The child gets a **minimal environment** (PATH, HOME, locale, proxy + CA vars) plus `PLAUD_TELEMETRY_DISABLED=1`; a test spawns it and checks no other `PLAUD_*` arrives. | PRD §4 |
+| I3 | `--until D` as `D + 1` (§7 step 1) makes G2's one-day count include the next day. | An explicit `--until` is an exact inclusive bound; runs without it keep one day of slack past today (F6). | §7 superseded here |
+| I4 | Rebuild must reproduce `recording_artifacts.last_checked_at` / `present_rev`, which the §6 manifest example (strings per artifact) cannot carry. | `states.artifacts.<a>` is `{state, lastCheckedAt, presentRev}`. `manifest.states` is the authority; `meta.json` holds a snapshot as of its revision. State-only changes (retry counters, last-seen, last-checked) are **manifest-only swaps** — a failed download does not mint a revision. | §6 example superseded |
+| I5 | The startup sweep would re-verify every revision of every recording on every run. | Ledger column `manifest_hash` (derived; rebuild recomputes it): an unchanged manifest is skipped; a changed or unknown one is verified and its row re-derived. `last_seen_at` is refreshed at most hourly to avoid manifest churn. | §3 + 1 column |
+| I6 | An explicitly empty highlights block (no button presses) is final; waiting 7 days for it kept nearly every bundle pending. | Resolves `absent` immediately; "not available yet" stays pending. | PRD FR1b |
+| I7 | `first_seen − start_at` is inflated by backfills (`--all` first-sees year-old recordings), so "2 × max" of it is meaningless. | `report --lag` prints both; the implied window uses Plaud's `created_at − start_at`. | §7 table |
+| I8 | G1c needs a hash re-check the plan named but no command provided. | `report --verify-audio N` (read-only; exit 1 on mismatch). | §9 G1c |
+| I9 | Exit code for "needs sign-in" was unspecified. | `pull` exits **4** with the login instruction (0 ok · 1 error · 2 defects · 3 busy). | §7 |
+| I10 | The presigned-audio host of the developer API is not known; the allowlist names the v1 buckets. | Downloads refuse non-allowlisted hosts (and non-HTTPS); the run logs the refused **hostname** once so the owner can add it deliberately. Recorded as a G-run item in `P0-GATE.md`. | — |
+| I11 | Dependency versions. | `@modelcontextprotocol/sdk` **1.32.2** (≤ 1.31 carries published advisories); `better-sqlite3` **12.11.1** (13.x needs Node 22; the repo supports 20). Both exact-pinned. The pre-existing `zod` 3.x advisory is unchanged here. | P0-D7 |
+| I12 | A recording's directory must not move if Plaud later edits `start_at`. | The dir is fixed at first sight; discovery finds it through the ledger, not by recomputing. | §6 |
+| I13 | Some platforms reject `fsync` on a directory fd. | Treated as a best-effort no-op there (the strongest guarantee available); the spy test still checks every directory sync is issued. | §6 |
+
+### Review response (implementation, `df9e081` → `fc957b8`)
+
+Independent review (Codex) of the implementation PR at `df9e081`: request
+changes, four findings, each reproduced on synthetic data. All fixed, each with
+a regression test that fails on `df9e081`:
+
+| # | Finding | Fix |
+|---|---|---|
+| CR-1 | **[P1]** The oldest pending bundles always filled the per-run text cap; later recordings could age out to `absent` without ever being checked. | Selection is never-checked first, then least-recently-checked; the cap counts fetches only; a bundle ages out only after at least one check (§4, §7 step 4 amended). |
+| CR-2 | **[P1]** Writing after a revision fallback copied the fallback revision's files but kept the newer manifest's `present` states, so an artifact could be dropped and never re-fetched. | Artifacts the verifying revision lacks are reopened (`pending`, age-out clock restarted) — in `pull` and in the startup sweep / `index rebuild` — and fetched again. |
+| CR-3 | **[P1]** A note entry with metadata but no string body (e.g. `data_content_error` when the package's linked-content fetch fails) counted as `present`. | A note is present only with a non-empty string body; anything else stays pending. |
+| CR-4 | **[P2]** `data_link` (a signed URL) survived into `plaud/note.json`. | Transcript blocks and notes are passed through `stripSecrets` in the adapter and again before persistence; it also drops any signed-URL string value. |
+
+Also added for the live gate: `plaudport gate g3b start|finish` (G3b).
+
+Re-review of `51db58e`: the four reproductions pass; one new finding.
+
+| # | Finding | Fix |
+|---|---|---|
+| CR-5 | **[P1]** A failed text fetch updated no timestamp, so a persistently failing recording stayed "never checked" and took the whole per-run cap every run. | The manifest records `states.textLastAttemptAt` on every attempt, success or failure (ledger column `text_last_attempt_at`, derived); scheduling rotates on it. Failures are still not *checks* (`lastCheckedAt` unchanged), so a failing recording never ages anything out — it is retried, fairly, indefinitely (FR1c spirit). |
+
+The re-review also saw one intermittent failure of the cross-process lock test.
+
+| # | Finding | Fix |
+|---|---|---|
+| CR-6 | **[P1, root-caused from the failure output]** A second acquirer got the lock while the holder reported `HELD`, with no busy error. Cause: the test holder dropped its `ArchiveLock` reference; the GC finalized the better-sqlite3 connection, closing the fd, and the OS released the lock while the process believed it held it. Reproduced deterministically with a forced GC. Production callers keep the reference until `release()`, so `pull`/`index rebuild` were not affected, but the guarantee must not depend on that. | `lock.ts` keeps a module-level strong reference to every held lock until `release()` or exit. Regression test (`hold-gc`: drop the reference, force GC, then contend) fails without the fix. The extended `SQLITE_BUSY_*` check added earlier stays as hardening; it did not explain this failure. |

@@ -25,7 +25,7 @@
     "web": "node --import tsx src/webServer.ts",
     "check:auth": "tsx src/checkAuth.ts",
     "set:auth": "tsx src/setAuth.ts",
-    "test": "node --import tsx --test src/*.test.ts && npm run test:chrome",
+    "test": "node --import tsx --test src/*.test.ts src/*/*.test.ts && npm run test:chrome",
     "demo": "node scripts/demo.mjs",
     "typecheck": "tsc --noEmit",
     "check:secrets": "bash scripts/check-no-secrets.sh",
@@ -33,13 +33,22 @@
     "chrome:install": "node scripts/chrome-auth-install.mjs",
     "test:chrome": "node --test scripts/chrome-auth.test.mjs",
     "start": "node --import tsx src/webServer.ts --open",
-    "cli": "node bin/plaudport.mjs"
+    "cli": "node bin/plaudport.mjs",
+    "pull": "tsx src/pullCli.ts",
+    "report": "tsx src/reportCli.ts",
+    "doctor": "tsx src/doctorCli.ts",
+    "login": "tsx src/loginCli.ts",
+    "index": "tsx src/indexCli.ts",
+    "gate": "tsx src/gateCli.ts"
   },
   "devDependencies": {
-    "typescript": "^5.6.0",
-    "@types/node": "^22.0.0"
+    "@types/better-sqlite3": "7.6.13",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "better-sqlite3": "12.11.1",
     "tsx": "^4.19.0",
     "zod": "^3.23.8"
   }

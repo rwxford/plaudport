@@ -1,5 +1,7 @@
 import { loadEnvFile, unwrapValue } from "./env.js";
 import { randomBytes } from "node:crypto";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { z } from "zod";
 
 /**
@@ -41,6 +43,92 @@ const SettingsSchema = z.object({
   PLAUDPORT_HOST: z.string().optional().default("127.0.0.1"),
   PLAUDPORT_PORT: z.coerce.number().int().min(1).max(65535).optional().default(4317),
 });
+
+/**
+ * v2 pipeline settings (PRD-PIPELINE §13 defaults, P0-PLAN T1). Parsed by a pure
+ * function so tests can feed it any environment without re-importing this file.
+ * Every number here is a default to validate, not a decision — see §13.
+ */
+export const PLAUD_MCP_PINNED_VERSION = "0.3.14";
+
+const intIn = (min: number, max: number, dflt: number) =>
+  z.coerce.number().int().min(min).max(max).optional().default(dflt);
+
+export const PipelineSchema = z.object({
+  PLAUDPORT_ARCHIVE_ROOT: z.string().min(1).optional().default("./data/archive"),
+  PLAUDPORT_PULL_OVERLAP_DAYS: intIn(1, 365, 14),
+  PLAUDPORT_PLAUD_TEXT_TIMEOUT_DAYS: intIn(1, 365, 7),
+  PLAUDPORT_RETRY_REPORT_AFTER: intIn(1, 1000, 3),
+  PLAUDPORT_TEXT_CHECKS_PER_RUN: intIn(1, 100_000, 200),
+  PLAUDPORT_REVISION_HISTORY: intIn(1, 100, 3),
+  PLAUDPORT_BACKUP_HINT: z.string().optional().default(""),
+  PLAUD_MCP_PACKAGE_VERSION: z
+    .string()
+    .regex(/^\d+\.\d+\.\d+$/, "PLAUD_MCP_PACKAGE_VERSION must be an exact version like 0.3.14 (no ranges)")
+    .optional()
+    .default(PLAUD_MCP_PINNED_VERSION),
+  PLAUDPORT_MCP_DIR: z.string().optional().default(""),
+  PLAUDPORT_MCP_ENTRY: z.string().optional().default(""),
+  PLAUDPORT_DEBUG_URL_AGE_HOURS: z.coerce.number().min(0).max(1000).optional(),
+});
+
+export interface PipelineConfig {
+  archiveRoot: string;
+  overlapDays: number;
+  textTimeoutDays: number;
+  retryReportAfter: number;
+  textChecksPerRun: number;
+  revisionHistory: number;
+  backupHint: string;
+  mcpVersion: string;
+  /** Where `doctor --install-mcp` pin-installs @plaud-ai/mcp (P0-D1). */
+  mcpDir: string;
+  /** Explicit entry script for the MCP server; empty = resolve from mcpDir. */
+  mcpEntry: string;
+  /** Test/gate knob (G3a): pretend every presigned URL is this many hours old. */
+  debugUrlAgeHours: number | null;
+}
+
+/** Default managed install location for the pinned MCP package. */
+export function defaultMcpDir(platform: NodeJS.Platform = process.platform, home = homedir()): string {
+  return platform === "darwin"
+    ? join(home, "Library", "Application Support", "PlaudPort", "mcp")
+    : join(home, ".local", "share", "plaudport", "mcp");
+}
+
+export function parsePipelineSettings(
+  env: Record<string, string | undefined>,
+): { ok: true; config: PipelineConfig } | { ok: false; errors: string[] } {
+  const r = PipelineSchema.safeParse(env);
+  if (!r.success) return { ok: false, errors: r.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`) };
+  const d = r.data;
+  return {
+    ok: true,
+    config: {
+      archiveRoot: d.PLAUDPORT_ARCHIVE_ROOT,
+      overlapDays: d.PLAUDPORT_PULL_OVERLAP_DAYS,
+      textTimeoutDays: d.PLAUDPORT_PLAUD_TEXT_TIMEOUT_DAYS,
+      retryReportAfter: d.PLAUDPORT_RETRY_REPORT_AFTER,
+      textChecksPerRun: d.PLAUDPORT_TEXT_CHECKS_PER_RUN,
+      revisionHistory: d.PLAUDPORT_REVISION_HISTORY,
+      backupHint: d.PLAUDPORT_BACKUP_HINT.trim(),
+      mcpVersion: d.PLAUD_MCP_PACKAGE_VERSION,
+      mcpDir: d.PLAUDPORT_MCP_DIR.trim() || defaultMcpDir(),
+      mcpEntry: d.PLAUDPORT_MCP_ENTRY.trim(),
+      debugUrlAgeHours: d.PLAUDPORT_DEBUG_URL_AGE_HOURS ?? null,
+    },
+  };
+}
+
+/** Pipeline config for CLI entry points: exits with a readable error if invalid. */
+export function requirePipelineConfig(env: Record<string, string | undefined> = process.env): PipelineConfig {
+  const r = parsePipelineSettings(env);
+  if (!r.ok) {
+    console.error("Config error:\n" + r.errors.map((e) => ` - ${e}`).join("\n"));
+    process.exit(1);
+  }
+  return r.config;
+}
 
 const settings = SettingsSchema.safeParse(process.env);
 if (!settings.success) {
